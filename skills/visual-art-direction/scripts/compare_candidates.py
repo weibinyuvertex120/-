@@ -6,6 +6,7 @@ Engineering comparison only - does NOT output aesthetic judgments like
 
 from __future__ import annotations
 
+import html
 import json
 from datetime import datetime
 from pathlib import Path
@@ -34,8 +35,24 @@ class LocalCompareAdapter:
     def capabilities(self) -> set[Capability]:
         return {Capability.V3_RESULT_COMPARISON}
 
-    def compare(self, original: Path, candidate: Path, report_dir: Path) -> ComparisonResult:
-        return compare_images(original, candidate, report_dir)
+    def compare(
+        self,
+        original: Path,
+        candidate: Path,
+        report_dir: Path,
+        *,
+        candidate_id: str = "",
+        parent_candidate_id: str = "",
+        plan_id: str = "",
+    ) -> ComparisonResult:
+        return compare_images(
+            original,
+            candidate,
+            report_dir,
+            candidate_id=candidate_id,
+            parent_candidate_id=parent_candidate_id,
+            plan_id=plan_id,
+        )
 
 
 def _get_image_info(path: Path) -> tuple[bool, tuple[int, int], str]:
@@ -117,7 +134,14 @@ def _generate_html_report(
     report_path: Path,
 ) -> None:
     """Generate HTML comparison report."""
-    html = f"""<!DOCTYPE html>
+    original_uri = html.escape(original.as_uri(), quote=True)
+    candidate_uri = html.escape(candidate.as_uri(), quote=True)
+    candidate_id = html.escape(result.candidate_id, quote=True)
+    parent_candidate_id = html.escape(result.parent_candidate_id, quote=True)
+    plan_id = html.escape(result.plan_id, quote=True)
+    pixel_change_summary = html.escape(result.pixel_change_summary, quote=True)
+    bounding_box = html.escape(str(result.change_bounding_box), quote=True)
+    html_document = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
@@ -143,13 +167,13 @@ def _generate_html_report(
     <div class="container">
         <div class="image-box">
             <h3>Original</h3>
-            <img src="{original.as_uri()}" alt="Original">
+            <img src="{original_uri}" alt="Original">
             <p>Size: {result.original_size[0]} x {result.original_size[1]}</p>
             <p>SHA-256: {result.original_sha256[:16]}...</p>
         </div>
         <div class="image-box">
             <h3>Candidate</h3>
-            <img src="{candidate.as_uri()}" alt="Candidate">
+            <img src="{candidate_uri}" alt="Candidate">
             <p>Size: {result.candidate_size[0]} x {result.candidate_size[1]}</p>
             <p>SHA-256: {result.candidate_sha256[:16]}...</p>
         </div>
@@ -158,10 +182,13 @@ def _generate_html_report(
     <h2>Engineering Metrics</h2>
     <table>
         <tr><th>Metric</th><th>Value</th></tr>
+        <tr><td>Candidate ID</td><td>{candidate_id}</td></tr>
+        <tr><td>Parent Candidate ID</td><td>{parent_candidate_id}</td></tr>
+        <tr><td>Plan ID</td><td>{plan_id}</td></tr>
         <tr><td>Original Readable</td><td>{"Yes" if result.original_readable else "No"}</td></tr>
         <tr><td>Candidate Readable</td><td>{"Yes" if result.candidate_readable else "No"}</td></tr>
-        <tr><td>Pixel Change Summary</td><td>{result.pixel_change_summary}</td></tr>
-        <tr><td>Change Bounding Box</td><td>{result.change_bounding_box}</td></tr>
+        <tr><td>Pixel Change Summary</td><td>{pixel_change_summary}</td></tr>
+        <tr><td>Change Bounding Box</td><td>{bounding_box}</td></tr>
     </table>
 
     <h2>Limitations</h2>
@@ -177,13 +204,17 @@ def _generate_html_report(
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as f:
-        f.write(html)
+        f.write(html_document)
 
 
 def compare_images(
     original: Path,
     candidate: Path,
     report_dir: Path,
+    *,
+    candidate_id: str = "",
+    parent_candidate_id: str = "",
+    plan_id: str = "",
 ) -> ComparisonResult:
     """Compare original and candidate images.
 
@@ -195,7 +226,11 @@ def compare_images(
     Returns:
         ComparisonResult with engineering comparison.
     """
-    result = ComparisonResult()
+    result = ComparisonResult(
+        candidate_id=candidate_id,
+        parent_candidate_id=parent_candidate_id,
+        plan_id=plan_id,
+    )
 
     # Get original info
     orig_readable, orig_size, orig_hash = _get_image_info(original)
@@ -219,9 +254,13 @@ def compare_images(
 
     # Compute pixel differences
     if orig_size == cand_size:
+        result.size_matches = True
         changed, total, bbox = _compute_pixel_diff(original, candidate)
         if changed >= 0:
             pct = (changed / total * 100) if total > 0 else 0
+            result.changed_pixels = changed
+            result.total_pixels = total
+            result.change_ratio = changed / total if total > 0 else 0.0
             result.pixel_change_summary = f"{changed}/{total} pixels changed ({pct:.1f}%)"
             result.change_bounding_box = bbox
         else:
@@ -236,6 +275,9 @@ def compare_images(
     report_data = {
         "original": str(original),
         "candidate": str(candidate),
+        "candidate_id": result.candidate_id,
+        "parent_candidate_id": result.parent_candidate_id,
+        "plan_id": result.plan_id,
         "original_readable": result.original_readable,
         "candidate_readable": result.candidate_readable,
         "original_sha256": result.original_sha256,
@@ -243,6 +285,10 @@ def compare_images(
         "original_size": list(result.original_size),
         "candidate_size": list(result.candidate_size),
         "pixel_change_summary": result.pixel_change_summary,
+        "changed_pixels": result.changed_pixels,
+        "total_pixels": result.total_pixels,
+        "change_ratio": result.change_ratio,
+        "size_matches": result.size_matches,
         "change_bounding_box": (
             list(result.change_bounding_box) if result.change_bounding_box else None
         ),

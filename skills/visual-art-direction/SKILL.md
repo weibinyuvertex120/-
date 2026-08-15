@@ -555,7 +555,7 @@ description: 见相：对照片、插图、截图、视频画面或其他视觉�
 |------|------|------|
 | V0 | 文件访问 | 核心运行时默认可用：读取图片、获取尺寸、计算 SHA-256 |
 | V1 | 视觉观察 | 外部观察 adapter 按现场启用；默认不提供，必须有可执行、可校验的结构化观察路径 |
-| V2 | 图像编辑 | 核心运行时提供有限的 L1/L2 确定性操作（内置 Pillow）；不代表 L3/L4 |
+| V2 | 图像编辑 | 核心运行时提供 L1/L2 和有 Plan 约束的矩形局部 L3 调整；不代表生成式 L3/L4 |
 | V3 | 结果比较 | 核心运行时提供 local-compare 工程比较；不代表审美判断或用户确认 |
 
 ### 内置确定性编辑能力
@@ -573,13 +573,31 @@ description: 见相：对照片、插图、截图、视频画面或其他视觉�
 - `width`/`height`: 正整数，最大 8192
 - `fit`: "contain" 或 "cover"
 
+**L3 局部可逆调整**：
+- 操作：`local_adjustment`
+- 参数：`box`、`exposure`、`contrast`、`saturation`、`feather`
+- 只改变矩形区域及其羽化边缘，禁止覆盖输入文件
+- 必须提供 Visual Transformation Plan
+- "可逆"指保留父候选、输入 hash 和参数后可以回退或重放，不承诺像素级数学逆运算
+
+### 最小 Visual Transformation Plan
+
+进入有 Plan 的编辑时，运行时校验以下字段：`plan_id`、`visual_goal`、
+`recommended_level`、`operations`、`success_criteria`、`must_preserve`、
+`allowed_changes`、`forbidden_changes` 和 `stop_condition`。操作不在 Plan 内或超过推荐等级时，
+返回 `failed_invalid_contract`。旧 L1/L2 case 仍可执行，但证据中标记为 `legacy-unplanned`；
+L3 不允许绕过 Plan。
+
 ### 运行时入口
 
 ```powershell
-# 运行单案例
-.\.venv\Scripts\python.exe skills\visual-art-direction\scripts\runner.py `
+# 安装后的唯一命令入口
+seeform `
   --case .skill-work\real-cases\case-001\runtime\case.json `
   --output .skill-work\real-cases\case-001\runtime\output
+
+# 直接使用 bundle 时，进入 skills\visual-art-direction 后调用同一个 main()
+python -m scripts --case .\case.json --output .\output
 ```
 
 ### 能力状态与降级
@@ -601,8 +619,12 @@ description: 见相：对照片、插图、截图、视频画面或其他视觉�
 - V1: adapter 必须有真实 `observe(image, prompt)` 执行路径，并返回 schema-valid 观察结果
 - V1: 观察结果必须绑定输入图片 SHA-256 和本次 prompt SHA-256
 - V1: malformed、adapter exception 或 hash mismatch 必须 fail-closed
-- V2: 内置 deterministic-pillow 只证明 L1/L2；外部 adapter 必须同时具备健康证据和实际执行路径
-- V3: 内置 local-compare 只证明工程差异报告；不能把它写成审美质量通过
+- V2: 内置 deterministic-pillow 证明 L1/L2 和 Plan 约束的矩形局部 L3；外部 adapter 必须同时具备健康证据和实际执行路径
+- V3: 内置 local-compare 记录父候选、候选、hash、尺寸和结构化像素指标；不能把它写成审美质量通过
+- 每个候选必须记录 `candidate_id`、`parent_candidate_id`、`plan_id`、输入/输出路径和 SHA-256
+- 候选输出路径必须唯一，禁止覆盖或通过硬链接别名指向原图/兄弟候选，写入后必须复核 hash
+- V2/V3 必须调用能力报告中记录的 provider；缺少执行方法或证据不一致时 fail-closed
+- 编辑参数按操作 schema 校验；非法类型、范围或多余字段返回 `failed_invalid_contract`
 - adapter 名称本身不能让能力变成 true
 
 详细运行时契约，请读取 `references/runtime-contract.md`。

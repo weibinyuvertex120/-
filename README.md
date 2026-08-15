@@ -36,10 +36,12 @@
 当前 MVP 支持：
 
 - 图片文件读取与完整性检查；
+- 最小 Visual Transformation Plan 校验；
 - 曝光、对比度和饱和度调整；
 - 裁切与尺寸适配；
+- 带矩形区域和可选羽化的局部可逆调整；
 - 原图和候选图的工程比较；
-- JSON / HTML 证据记录。
+- 候选血缘、完整能力报告和 JSON / HTML 证据记录；
 
 使用时提供：
 
@@ -68,8 +70,8 @@
 
 - V0 文件读取：已具备；
 - V1 真实视觉观察：默认不可用；只有宿主提供文件型、结构化且 hash 可校验的观察 adapter 时才启用；
-- V2 基础编辑：核心支持 Pillow 确定性 L1/L2 操作，不代表 L3/L4；
-- V3 工程比较：核心支持尺寸、SHA-256、像素变化和报告生成，不代表审美判断；
+- V2 基础编辑：核心支持 Pillow 确定性 L1/L2，以及有 Plan 约束的矩形局部 L3 调整；不代表生成式 L3/L4；
+- V3 工程比较：核心支持已有候选、父候选、尺寸、SHA-256、结构化像素指标和报告生成，不代表审美判断；
 - 审美判断与最终确认：由宿主能力和用户共同完成。
 
 见相曾在外部 WorkBuddy 宿主上完成过一个真实合照案例的观察、候选生成和工程比较，但该案例仍等待用户确认，不能当作内置 V1 能力或普遍质量证明。
@@ -83,6 +85,15 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[test]"
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+安装后统一通过 `seeform` 执行：
+
+```powershell
+seeform --case .\case.json --output .\output
+```
+
+直接使用 Skill bundle 时，在 `skills/visual-art-direction` 下运行
+`python -m scripts --case .\case.json --output .\output`；两种形式进入同一个 `scripts.runner:main`。
 
 ## 项目结构
 

@@ -107,7 +107,8 @@ class HostBridgeAdapter:
                     ObservationResult.model_validate_json(result_path.read_text(encoding="utf-8"))
                 except (OSError, ValueError):
                     continue
-            caps.add(cap)
+            if cap == Capability.V1_VISUAL_OBSERVATION:
+                caps.add(cap)
         return caps
 
     def observe(self, image: Path, prompt: str) -> ObservationResult:
@@ -128,7 +129,16 @@ class HostBridgeAdapter:
         """
         raise NotImplementedError("Host bridge does not support edit in v1")
 
-    def compare(self, original: Path, candidate: Path) -> ComparisonResult:
+    def compare(
+        self,
+        original: Path,
+        candidate: Path,
+        report_dir: Path,
+        *,
+        candidate_id: str = "",
+        parent_candidate_id: str = "",
+        plan_id: str = "",
+    ) -> ComparisonResult:
         """Not supported by host bridge in first version.
 
         Raises:

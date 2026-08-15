@@ -94,6 +94,7 @@ def probe_capabilities(
         return report
 
     report.input_path = input_path
+    report.input_exists = input_path.exists() and input_path.is_file()
 
     # Check V0
     v0_available, v0_evidence = _check_v0(input_path)
@@ -137,6 +138,7 @@ def probe_capabilities(
     # Check adapters
     if adapters:
         for adapter in adapters:
+            report.adapters_checked.append(adapter.name)
             try:
                 health = adapter.healthcheck()
                 if health.healthy:
@@ -148,6 +150,7 @@ def probe_capabilities(
                                     available=True,
                                     evidence=health.evidence,
                                     provider=adapter.name,
+                                    provider_version=adapter.version,
                                     checked_at=now,
                                 )
             except Exception:

@@ -1,23 +1,26 @@
-"""Deterministic L1/L2 image editing using Pillow.
+"""Deterministic, non-destructive image editing using Pillow.
 
 First version covers:
 - L1: exposure, contrast, saturation
 - L2: explicit box crop, resize for media
+- L3: bounded local exposure, contrast, and saturation adjustment
 
 Does NOT do:
 - Face detection
 - Face reconstruction
 - Background generation
 - New person generation
-- L3/L4 generative operations
+- Generative L3/L4 operations
 """
 
 from __future__ import annotations
 
+import os
+import tempfile
 import time
 from pathlib import Path
 
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
 from .contracts import AdapterHealth, Capability, EditOperation, EditRequest, EditResult
 from .evidence import sha256_file
@@ -41,7 +44,7 @@ class DeterministicEditorAdapter:
             version=self.version,
             healthy=True,
             capabilities={Capability.V2_IMAGE_EDITING},
-            evidence="Pillow deterministic L1/L2 editor is available locally",
+            evidence="Pillow deterministic L1/L2 and bounded local L3 editor is available",
         )
 
     def capabilities(self) -> set[Capability]:
@@ -55,6 +58,24 @@ class DeterministicEditorAdapter:
                 exposure=request.parameters.get("exposure", 0.0),
                 contrast=request.parameters.get("contrast", 1.0),
                 saturation=request.parameters.get("saturation", 1.0),
+            )
+        if request.operation == EditOperation.LOCAL_ADJUSTMENT:
+            box = request.parameters.get("box")
+            if not box or len(box) != 4:
+                return EditResult(
+                    success=False,
+                    operation=request.operation,
+                    parameters=request.parameters,
+                    error="Local adjustment requires 'box' parameter with 4 elements",
+                )
+            return local_adjustment_l3(
+                request.input_image,
+                request.output_image,
+                box=tuple(box),
+                exposure=request.parameters.get("exposure", 0.0),
+                contrast=request.parameters.get("contrast", 1.0),
+                saturation=request.parameters.get("saturation", 1.0),
+                feather=request.parameters.get("feather", 0),
             )
         if request.operation == EditOperation.CROP:
             box = request.parameters.get("box")
@@ -106,7 +127,31 @@ def _validate_input_output(input_path: Path, output_path: Path) -> str:
     if input_path.resolve() == output_path.resolve():
         return "Output path must differ from input path"
 
+    if output_path.exists():
+        try:
+            if os.path.samefile(input_path, output_path):
+                return "Input and output resolve to the same file"
+        except OSError as exc:
+            return f"Cannot verify output file identity: {exc}"
+
     return ""
+
+
+def _save_png_atomic(image: Image.Image, output_path: Path) -> None:
+    """Write a PNG completely before replacing the destination entry."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        dir=output_path.parent,
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as handle:
+        temporary_path = Path(handle.name)
+    try:
+        image.save(temporary_path, "PNG")
+        os.replace(temporary_path, output_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def _validate_exposure(value: float) -> str:
@@ -201,11 +246,7 @@ def edit_l1(
                 enhancer = ImageEnhance.Color(img)
                 img = enhancer.enhance(saturation)
 
-            # Ensure output directory exists
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Save as PNG to avoid JPEG recompression
-            img.save(output_path, "PNG")
+            _save_png_atomic(img, output_path)
 
     except Exception as e:
         return EditResult(
@@ -304,11 +345,7 @@ def crop_l2(
 
             img = img.crop(box)
 
-            # Ensure output directory exists
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Save as PNG
-            img.save(output_path, "PNG")
+            _save_png_atomic(img, output_path)
 
     except Exception as e:
         return EditResult(
@@ -333,6 +370,121 @@ def crop_l2(
         output_sha256=output_hash,
         output_size=output_size,
         execution_time_ms=elapsed,
+    )
+
+
+def local_adjustment_l3(
+    input_path: Path,
+    output_path: Path,
+    *,
+    box: tuple[int, int, int, int],
+    exposure: float = 0.0,
+    contrast: float = 1.0,
+    saturation: float = 1.0,
+    feather: int = 0,
+) -> EditResult:
+    """Apply a bounded local adjustment while preserving the parent image."""
+    start_time = time.time()
+    parameters = {
+        "box": box,
+        "exposure": exposure,
+        "contrast": contrast,
+        "saturation": saturation,
+        "feather": feather,
+    }
+    error = _validate_input_output(input_path, output_path)
+    if error:
+        return EditResult(
+            success=False,
+            operation=EditOperation.LOCAL_ADJUSTMENT,
+            parameters=parameters,
+            error=error,
+        )
+    if len(box) != 4:
+        return EditResult(
+            success=False,
+            operation=EditOperation.LOCAL_ADJUSTMENT,
+            parameters=parameters,
+            error="Box must have 4 elements: (left, upper, right, lower)",
+        )
+    for value, validator in (
+        (exposure, _validate_exposure),
+        (contrast, _validate_contrast),
+        (saturation, _validate_saturation),
+    ):
+        error = validator(value)
+        if error:
+            return EditResult(
+                success=False,
+                operation=EditOperation.LOCAL_ADJUSTMENT,
+                parameters=parameters,
+                error=error,
+            )
+    if not isinstance(feather, int) or not 0 <= feather <= 256:
+        return EditResult(
+            success=False,
+            operation=EditOperation.LOCAL_ADJUSTMENT,
+            parameters=parameters,
+            error="Feather must be an integer between 0 and 256",
+        )
+
+    left, upper, right, lower = box
+    if left >= right or upper >= lower:
+        return EditResult(
+            success=False,
+            operation=EditOperation.LOCAL_ADJUSTMENT,
+            parameters=parameters,
+            error="Invalid local adjustment box",
+        )
+
+    input_hash = sha256_file(input_path)
+    try:
+        with Image.open(input_path) as source:
+            source = source.convert("RGB")
+            width, height = source.size
+            if left < 0 or upper < 0 or right > width or lower > height:
+                return EditResult(
+                    success=False,
+                    operation=EditOperation.LOCAL_ADJUSTMENT,
+                    parameters=parameters,
+                    input_sha256=input_hash,
+                    error=f"Local adjustment box {box} exceeds image bounds ({width}, {height})",
+                )
+
+            adjusted = source.copy()
+            if exposure != 0.0:
+                adjusted = ImageEnhance.Brightness(adjusted).enhance(1.0 + exposure)
+            if contrast != 1.0:
+                adjusted = ImageEnhance.Contrast(adjusted).enhance(contrast)
+            if saturation != 1.0:
+                adjusted = ImageEnhance.Color(adjusted).enhance(saturation)
+
+            mask = Image.new("L", source.size, 0)
+            ImageDraw.Draw(mask).rectangle((left, upper, right - 1, lower - 1), fill=255)
+            if feather:
+                mask = mask.filter(ImageFilter.GaussianBlur(feather))
+            output = Image.composite(adjusted, source, mask)
+            _save_png_atomic(output, output_path)
+    except Exception as exc:
+        return EditResult(
+            success=False,
+            operation=EditOperation.LOCAL_ADJUSTMENT,
+            parameters=parameters,
+            input_sha256=input_hash,
+            error=str(exc),
+        )
+
+    output_hash = sha256_file(output_path)
+    with Image.open(output_path) as image:
+        output_size = image.size
+    return EditResult(
+        success=True,
+        operation=EditOperation.LOCAL_ADJUSTMENT,
+        parameters=parameters,
+        input_sha256=input_hash,
+        output_sha256=output_hash,
+        output_size=output_size,
+        execution_time_ms=(time.time() - start_time) * 1000,
     )
 
 
@@ -417,11 +569,7 @@ def resize_for_media(
                 upper = (new_height - height) // 2
                 img = img.crop((left, upper, left + width, upper + height))
 
-            # Ensure output directory exists
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Save as PNG
-            img.save(output_path, "PNG")
+            _save_png_atomic(img, output_path)
 
     except Exception as e:
         return EditResult(

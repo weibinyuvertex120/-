@@ -67,12 +67,22 @@ class CapabilityAdapter(Protocol):
         """
         ...
 
-    def compare(self, original: Path, candidate: Path) -> ComparisonResult:
+    def compare(
+        self,
+        original: Path,
+        candidate: Path,
+        report_dir: Path,
+        *,
+        candidate_id: str = "",
+        parent_candidate_id: str = "",
+        plan_id: str = "",
+    ) -> ComparisonResult:
         """Compare original and candidate images.
 
         Args:
             original: Path to original image.
             candidate: Path to candidate image.
+            report_dir: Directory for comparison artifacts.
 
         Returns:
             ComparisonResult with comparison information.

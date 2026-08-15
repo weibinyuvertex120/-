@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Added one canonical `seeform` execution entry with a bundle module fallback.
+- Added the minimal Visual Transformation Plan contract and execution gates.
+- Added bounded, non-destructive local L3 adjustment with candidate rollback lineage.
+- Added compare-only candidate inputs and stable V3 numeric metrics.
+- Added plan-bound candidate lineage to evidence and comparison reports.
+- Fixed complete capability report serialization, including `input_exists`, adapters, and `has_v*` fields.
+- Routed V2/V3 execution through the provider recorded by capability probing.
+- Rejected hardlink aliases, duplicate candidate outputs, ambiguous candidate sources, and malformed operation parameters.
+- Escaped lineage metadata in HTML comparison reports and verified hashes after edits.
+
 ## v0.1.0 - 2026-08-15
 
 - Initial public release of the Seeform visual transformation Skill.

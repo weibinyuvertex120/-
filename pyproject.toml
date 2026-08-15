@@ -19,6 +19,13 @@ test = [
     "pytest-cov>=5,<8",
 ]
 
+[project.scripts]
+seeform = "scripts.runner:main"
+
+[tool.setuptools.packages.find]
+where = ["skills/visual-art-direction"]
+include = ["scripts*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--strict-markers", "--strict-config"]

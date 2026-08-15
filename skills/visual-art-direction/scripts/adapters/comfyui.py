@@ -99,7 +99,16 @@ class ComfyUIAdapter:
         """
         raise NotImplementedError("ComfyUI edit not implemented in v1")
 
-    def compare(self, original: Path, candidate: Path) -> ComparisonResult:
+    def compare(
+        self,
+        original: Path,
+        candidate: Path,
+        report_dir: Path,
+        *,
+        candidate_id: str = "",
+        parent_candidate_id: str = "",
+        plan_id: str = "",
+    ) -> ComparisonResult:
         """Not supported in v1.
 
         Raises:

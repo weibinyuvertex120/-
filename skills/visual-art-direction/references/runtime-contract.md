@@ -2,6 +2,10 @@
 
 本文档定义 `visual-art-direction` Skill 的运行时能力边界、状态语义和真实证据要求。
 
+当前唯一执行函数是 `scripts.runner:main`。安装包通过 `seeform` 调用；直接使用 Skill bundle
+时通过 `python -m scripts` 调用。不得把 `deterministic_editor.py`、
+`compare_candidates.py` 或 adapter 模块另行包装成第二套公开工作流。
+
 ---
 
 ## 一、能力分级
@@ -77,15 +81,16 @@
 1. `deterministic-pillow`
    - L1：曝光、对比度、饱和度
    - L2：明确 box 裁切、比例适配
+   - L3：有 Visual Transformation Plan 约束的矩形局部曝光、对比度和饱和度调整
 
 2. 外部 adapter
    - 只做健康检查和协议定义
    - 不默认调用真实生成模型
 
-**V2 不等于拥有 L3/L4 能力。**
+**有限局部 L3 不等于拥有生成式 L3/L4 能力。**
 
 **证据要求**：
-- 内置 deterministic-pillow 的健康证据只覆盖 L1/L2；外部 adapter 必须有真实执行路径
+- 内置 deterministic-pillow 的健康证据覆盖 L1/L2 和 Plan 约束的矩形局部 L3；外部 adapter 必须有真实执行路径
 - 服务可达不等于模型可用
 - 模型可用不等于编辑结果已完成
 
@@ -98,6 +103,8 @@
 - 生成像素变化摘要
 - 计算变化区域 bounding box
 - 生成 JSON 和 HTML 工程报告
+- 输出 `changed_pixels`、`total_pixels`、`change_ratio` 和 `size_matches` 稳定字段
+- 支持 compare-only case 传入已有候选，并按父候选进行比较
 
 **明确限制**：
 - 工程差异不等于审美质量
@@ -129,7 +136,7 @@
 
 ---
 
-## 三、L1/L2 确定性能力范围
+## 三、确定性能力范围
 
 ### L1：曝光、对比度、饱和度
 
@@ -206,7 +213,71 @@
 
 ---
 
-## 七、Bundle 规则
+## 七、执行计划、局部调整与候选血缘
+
+### 最小 Visual Transformation Plan
+
+Plan 是宿主或 Agent 在诊断后提供的执行约束，不是运行时自动生成的审美结论。最小字段为：
+
+- `plan_id`
+- `visual_goal`
+- `recommended_level`
+- `operations`
+- `success_criteria`
+- `must_preserve`
+- `allowed_changes`
+- `forbidden_changes`
+- `stop_condition`
+
+Plan 存在时，操作必须在 `operations` 中且不得超过 `recommended_level`。旧 L1/L2 case
+为兼容仍可不带 Plan，血缘中标记为 `legacy-unplanned`。任何 L3 局部调整都必须带 Plan。
+
+### 局部可逆调整
+
+`local_adjustment` 固定为 L3，只接受矩形 `box`、`exposure`、`contrast`、`saturation`
+和 `feather`。它输出新文件并保留父候选。"可逆"表示可以沿血缘回退到父候选或按记录参数重放，
+不表示输出像素可以通过反向参数无损恢复。
+
+### 候选血缘
+
+每个候选记录：
+
+- `candidate_id` 与 `parent_candidate_id`
+- `plan_id`
+- 输入/输出路径与 SHA-256
+- 操作、参数和 `reversible`
+
+父候选路径或 hash 不匹配时返回 `failed_invalid_contract`。V3 报告和 EvidenceRecord 必须保留
+候选、父候选和 Plan 标识。
+
+候选输出必须使用唯一规范路径，且不得与原图或其他候选通过硬链接指向同一文件。运行时在编辑前
+保留输出路径、编辑后复核输入/输出 hash，并拒绝 provider 返回的操作、hash 或血缘与请求不一致。
+同一个 case 不能同时提交 `operations` 和 `comparison_candidates`；compare-only 候选 ID 必须唯一，
+父候选必须先于子候选出现。
+
+### Adapter 执行一致性
+
+能力报告中的 V1/V2/V3 provider 必须是本次实际调用的 adapter。V2 adapter 实现
+`edit(request)`；V3 adapter 实现 `compare(original, candidate, report_dir, ...)` 并返回完整、
+可验证的 ComparisonResult。provider 缺少对应执行方法、执行异常或返回证据不一致时，运行时
+fail-closed，不得静默切换到其他内置实现。编辑参数按操作对应的强类型 schema 校验，非法类型、
+范围或多余字段返回 `failed_invalid_contract`。
+
+### 完整能力报告
+
+序列化能力报告必须包含 `input_path`、`input_exists`、`input_sha256`、`input_size`、
+`capabilities`、`status`、`checked_at`、`adapters_checked` 和 `has_v0` 到 `has_v3`。
+EvidenceRecord 保存完整报告，不得只截取 capability map。
+
+### CLI 退出码
+
+- `0`：`completed` 或 `completed_with_user_confirmation_pending`
+- `1`：契约或执行失败
+- `2`：能力、输入或候选阻塞
+
+---
+
+## 八、Bundle 规则
 
 **必须包含**：
 - `SKILL.md`
@@ -219,3 +290,4 @@
 - 模型权重
 - 密钥
 - 运行状态
+- `__pycache__/`、`*.pyc`、`*.pyo`

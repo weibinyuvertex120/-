@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seeform-visual-art-direction"
+version = "0.1.0"
+description = "Tool-agnostic visual transformation skill for AI agents."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "Pillow>=10,<13",
+    "pydantic>=2.13,<3",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8,<10",
+    "pytest-cov>=5,<8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers", "--strict-config"]

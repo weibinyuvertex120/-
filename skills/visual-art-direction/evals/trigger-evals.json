@@ -1,0 +1,106 @@
+[
+  {
+    "query": "这张照片很灰，帮我判断缺什么再决定怎么处理。",
+    "should_trigger": true
+  },
+  {
+    "query": "这张图没有构图，先判断裁切能不能解决。",
+    "should_trigger": true
+  },
+  {
+    "query": "照片没有层次，判断是调光、重构还是生成。",
+    "should_trigger": true
+  },
+  {
+    "query": "原片很普通，但我想做成有摄影师完成度的作品。",
+    "should_trigger": true
+  },
+  {
+    "query": "背景无法支撑目标，判断是否需要生成。",
+    "should_trigger": true
+  },
+  {
+    "query": "这张照片拍得很平，主体也不突出。请先判断问题，再决定是裁切、调色、重构还是生成，最后评价改完有没有真的变好。",
+    "should_trigger": true
+  },
+  {
+    "query": "我有一张普通的街景，想做成手机端视频的开场画面。不要直接套电影感，先分析它的潜力和最适合的视觉表达。",
+    "should_trigger": true
+  },
+  {
+    "query": "帮我看这张产品图为什么没有购买理由，然后设计一套主视觉和辅助视觉，说明每一步用什么能力完成。",
+    "should_trigger": true
+  },
+  {
+    "query": "这张人像背景很乱但人物状态不错，想保留真实感又让画面更有叙事，请给出诊断、改造策略和迭代标准。",
+    "should_trigger": true
+  },
+  {
+    "query": "这张新闻照片光线不好，但内容很重要，只能做校正性处理，请按纪实模式给出处理方案。",
+    "should_trigger": true
+  },
+  {
+    "query": "我想把这张照片做成概念海报，可以深度重构，但需要标注哪些是原素材、哪些是生成的。",
+    "should_trigger": true
+  },
+  {
+    "query": "这张图第一轮改完主体还是不清楚，背景也更花了，麻烦你评价一下这版结果，决定要不要继续还是换个策略。",
+    "should_trigger": true
+  },
+  {
+    "query": "这张照片看起来手机感很强，帮我判断一下是什么原因造成的，然后选择合适的处理方式。",
+    "should_trigger": true
+  },
+  {
+    "query": "我有一组 9 张照片想做成社交媒体九宫格，但它们的色调和光线都不统一，请帮我规划统一的视觉语言。",
+    "should_trigger": true
+  },
+  {
+    "query": "这张照片有点模糊，但我觉得这种颗粒感很有氛围，帮我判断这是缺陷还是表达，以及是否需要处理。",
+    "should_trigger": true
+  },
+  {
+    "query": "这张少女照片有点灰，帮我判断怎么提升质感，同时保留真实感。",
+    "should_trigger": true
+  },
+  {
+    "query": "帮我修掉能修的瑕疵，但不要磨皮磨成塑料。",
+    "should_trigger": true
+  },
+  {
+    "query": "这张人像想要朦胧感，先判断应该从光线、背景还是色彩入手。",
+    "should_trigger": true
+  },
+  {
+    "query": "人物好看但照片不够成立，请按摄影师后期标准处理。",
+    "should_trigger": true
+  },
+  {
+    "query": "想让照片更美，但保留人物本来的样子。",
+    "should_trigger": true
+  },
+  {
+    "query": "把这张照片变成复古胶片风，给我一段可以直接复制到图片模型里的提示词。",
+    "should_trigger": false
+  },
+  {
+    "query": "请用 Photoshop 的曲线、色阶和蒙版把照片提亮，按菜单一步一步告诉我怎么点。",
+    "should_trigger": false
+  },
+  {
+    "query": "帮我生成一张赛博朋克城市夜景，不需要参考图片，也不用分析素材。",
+    "should_trigger": false
+  },
+  {
+    "query": "这张照片的 EXIF 信息有哪些？请提取拍摄时间、焦距和相机型号。",
+    "should_trigger": false
+  },
+  {
+    "query": "给我推荐几个好用的滤镜，适合风景照片的。",
+    "should_trigger": false
+  },
+  {
+    "query": "Midjourney 怎么用？给我写一个教程。",
+    "should_trigger": false
+  }
+]

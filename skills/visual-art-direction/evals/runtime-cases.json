@@ -1,0 +1,186 @@
+[
+  {
+    "id": "runtime-001",
+    "description": "无输入图片",
+    "case": {
+      "case_id": "test-no-input",
+      "input_image": "/nonexistent/image.jpg",
+      "requested_phase": "diagnosis",
+      "truth_mode": "纪实",
+      "operations": [],
+      "user_confirmation_status": "pending"
+    },
+    "expected_status": "blocked_no_input",
+    "assertions": ["blocked_no_input"]
+  },
+  {
+    "id": "runtime-002",
+    "description": "只有V0，无V1时诊断被阻塞",
+    "case": {
+      "case_id": "test-v0-only",
+      "input_image": "PLACEHOLDER_EXISTING_IMAGE",
+      "requested_phase": "diagnosis",
+      "truth_mode": "纪实",
+      "operations": [],
+      "user_confirmation_status": "pending"
+    },
+    "expected_status": "blocked_no_view_capability",
+    "assertions": ["blocked_no_view_capability"],
+    "requires": ["existing_image", "no_v1_adapter"]
+  },
+  {
+    "id": "runtime-003",
+    "description": "明确L1曝光/对比度操作",
+    "case": {
+      "case_id": "test-l1-exposure",
+      "input_image": "PLACEHOLDER_EXISTING_IMAGE",
+      "requested_phase": "edit",
+      "truth_mode": "纪实",
+      "operations": [
+        {
+          "case_id": "test-l1-exposure",
+          "input_image": "PLACEHOLDER_EXISTING_IMAGE",
+          "level": "L1",
+          "operation": "exposure_contrast_color",
+          "parameters": {"exposure": 0.2, "contrast": 1.1, "saturation": 1.0},
+          "must_preserve": [],
+          "allowed_changes": ["exposure", "contrast"],
+          "forbidden_changes": [],
+          "strength": "subtle",
+          "output_image": "PLACEHOLDER_OUTPUT_IMAGE"
+        }
+      ],
+      "user_confirmation_status": "pending"
+    },
+    "expected_status": "completed_with_user_confirmation_pending",
+    "assertions": ["completed", "pending"],
+    "requires": ["existing_image"]
+  },
+  {
+    "id": "runtime-004",
+    "description": "明确L2裁切操作",
+    "case": {
+      "case_id": "test-l2-crop",
+      "input_image": "PLACEHOLDER_EXISTING_IMAGE",
+      "requested_phase": "edit",
+      "truth_mode": "纪实",
+      "operations": [
+        {
+          "case_id": "test-l2-crop",
+          "input_image": "PLACEHOLDER_EXISTING_IMAGE",
+          "level": "L2",
+          "operation": "crop",
+          "parameters": {"box": [10, 10, 100, 100]},
+          "must_preserve": [],
+          "allowed_changes": ["crop"],
+          "forbidden_changes": [],
+          "strength": "subtle",
+          "output_image": "PLACEHOLDER_OUTPUT_IMAGE"
+        }
+      ],
+      "user_confirmation_status": "pending"
+    },
+    "expected_status": "completed_with_user_confirmation_pending",
+    "assertions": ["completed", "pending"],
+    "requires": ["existing_image"]
+  },
+  {
+    "id": "runtime-005",
+    "description": "非法裁切 - 越界",
+    "case": {
+      "case_id": "test-illegal-crop",
+      "input_image": "PLACEHOLDER_EXISTING_IMAGE",
+      "requested_phase": "edit",
+      "truth_mode": "纪实",
+      "operations": [
+        {
+          "case_id": "test-illegal-crop",
+          "input_image": "PLACEHOLDER_EXISTING_IMAGE",
+          "level": "L2",
+          "operation": "crop",
+          "parameters": {"box": [-10, -10, 99999, 99999]},
+          "must_preserve": [],
+          "allowed_changes": ["crop"],
+          "forbidden_changes": [],
+          "strength": "subtle",
+          "output_image": "PLACEHOLDER_OUTPUT_IMAGE"
+        }
+      ],
+      "user_confirmation_status": "pending"
+    },
+    "expected_status": "failed_execution",
+    "assertions": ["failed", "crop"],
+    "requires": ["existing_image"]
+  },
+  {
+    "id": "runtime-006",
+    "description": "覆盖原图被拒绝",
+    "case": {
+      "case_id": "test-overwrite-original",
+      "input_image": "PLACEHOLDER_EXISTING_IMAGE",
+      "requested_phase": "edit",
+      "truth_mode": "纪实",
+      "operations": [
+        {
+          "case_id": "test-overwrite-original",
+          "input_image": "PLACEHOLDER_EXISTING_IMAGE",
+          "level": "L1",
+          "operation": "exposure_contrast_color",
+          "parameters": {"exposure": 0.0, "contrast": 1.0, "saturation": 1.0},
+          "must_preserve": [],
+          "allowed_changes": [],
+          "forbidden_changes": [],
+          "strength": "subtle",
+          "output_image": "PLACEHOLDER_EXISTING_IMAGE"
+        }
+      ],
+      "user_confirmation_status": "pending"
+    },
+    "expected_status": "failed_invalid_contract",
+    "assertions": ["failed", "overwrite"],
+    "requires": ["existing_image"]
+  },
+  {
+    "id": "runtime-007",
+    "description": "生成性操作被拒绝",
+    "case": {
+      "case_id": "test-generative-rejected",
+      "input_image": "PLACEHOLDER_EXISTING_IMAGE",
+      "requested_phase": "edit",
+      "truth_mode": "纪实",
+      "operations": [
+        {
+          "case_id": "test-generative-rejected",
+          "input_image": "PLACEHOLDER_EXISTING_IMAGE",
+          "level": "L2",
+          "operation": "generate_background",
+          "parameters": {"prompt": "beautiful sunset"},
+          "must_preserve": [],
+          "allowed_changes": [],
+          "forbidden_changes": [],
+          "strength": "generative",
+          "output_image": "PLACEHOLDER_OUTPUT_IMAGE"
+        }
+      ],
+      "user_confirmation_status": "pending"
+    },
+    "expected_status": "failed_invalid_contract",
+    "assertions": ["failed", "unsupported"],
+    "requires": ["existing_image"]
+  },
+  {
+    "id": "runtime-008",
+    "description": "没有候选时比较被阻塞",
+    "case": {
+      "case_id": "test-no-candidate-compare",
+      "input_image": "PLACEHOLDER_EXISTING_IMAGE",
+      "requested_phase": "compare",
+      "truth_mode": "纪实",
+      "operations": [],
+      "user_confirmation_status": "pending"
+    },
+    "expected_status": "blocked_no_comparison_capability",
+    "assertions": ["blocked", "no_comparison"],
+    "requires": ["existing_image", "no_v3_adapter"]
+  }
+]

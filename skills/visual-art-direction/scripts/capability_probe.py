@@ -11,6 +11,7 @@ from .contracts import (
     Capability,
     CapabilityReport,
     CapabilityState,
+    ObservationResult,
     Status,
 )
 
@@ -24,6 +25,7 @@ class CapabilityAdapter(Protocol):
 
     def healthcheck(self) -> AdapterHealth: ...
     def capabilities(self) -> set[Capability]: ...
+    def observe(self, image: Path, prompt: str) -> ObservationResult: ...
 
 
 def _check_v0(input_path: Path) -> tuple[bool, str]:

@@ -11,6 +11,7 @@ from ..contracts import (
     ComparisonResult,
     EditRequest,
     EditResult,
+    ObservationResult,
 )
 
 
@@ -37,7 +38,7 @@ class CapabilityAdapter(Protocol):
         """
         ...
 
-    def observe(self, image: Path, prompt: str) -> dict:
+    def observe(self, image: Path, prompt: str) -> ObservationResult:
         """Observe image and return structured result.
 
         Args:

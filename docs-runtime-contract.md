@@ -36,10 +36,38 @@
 **禁止**：
 - 没有 V2 时声称已完成编辑
 - 没有候选时声称已完成结果比较
+- 把宿主的自然语言总结当作运行时观察证据
+- 从画面推断未经证实的身份、年龄、职业、健康或故事
+
+**结构化结果**：
+
+```json
+{
+  "success": true,
+  "provider": "host-defined-provider",
+  "provider_version": "",
+  "input_sha256": "sha256-of-original-image",
+  "prompt_sha256": "sha256-of-observation-prompt",
+  "items": [
+    {
+      "dimension": "portrait|scene|P01-P10|other",
+      "statement": "可从图像确认的事实",
+      "evidence": ["支持事实的可见线索"],
+      "confidence": "high|medium|low"
+    }
+  ],
+  "uncertainties": [],
+  "error": ""
+}
+```
 
 **证据要求**：
-- 必须由 adapter healthcheck 返回真实证据
-- adapter 名称本身不能让能力变成 true
+- 必须由 adapter healthcheck 返回真实、可执行的观察路径
+- adapter 名称或 capability 名称本身不能让能力变成 true
+- runner 必须实际调用 `observe(image, prompt)`
+- `input_sha256` 必须匹配 V0 输入 hash
+- `prompt_sha256` 必须匹配本次观察请求
+- schema 错误、adapter 异常或 hash 不匹配时 fail-closed 为 `failed_execution`
 - 自然语言"我可以看图"不能作为完成证据
 
 ### V2：图像编辑
@@ -57,7 +85,7 @@
 **V2 不等于拥有 L3/L4 能力。**
 
 **证据要求**：
-- 必须由 adapter healthcheck 返回真实证据
+- 内置 deterministic-pillow 的健康证据只覆盖 L1/L2；外部 adapter 必须有真实执行路径
 - 服务可达不等于模型可用
 - 模型可用不等于编辑结果已完成
 
@@ -166,6 +194,7 @@
 
 **必须记录**：
 - 能力 probe 结果
+- V1 观察结果（provider、版本、输入 hash、prompt hash、事实观察、置信度和不确定性）
 - 操作详情（操作类型、参数、输入/输出 hash）
 - 比较结果（尺寸变化、像素变化摘要）
 - 用户确认状态

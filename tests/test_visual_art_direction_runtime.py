@@ -1,5 +1,6 @@
 """Tests for visual-art-direction runtime capabilities."""
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ from pydantic import ValidationError
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "visual-art-direction"))
 
+from scripts.adapters.host_bridge import HostBridgeAdapter
 from scripts.capability_probe import probe_capabilities
 from scripts.compare_candidates import LocalCompareAdapter, compare_images
 from scripts.contracts import (
@@ -20,6 +22,7 @@ from scripts.contracts import (
     EditOperation,
     EditRequest,
     EvidenceRecord,
+    ObservationResult,
     Status,
     UserConfirmationStatus,
 )
@@ -34,10 +37,22 @@ from scripts.runner import run_case
 
 
 class ObservationAdapter:
-    """Minimal test-only declaration of a real V1 host capability."""
+    """Test adapter that returns a hash-bound structured observation."""
 
     name = "test-observer"
     version = "1.0.0"
+
+    def __init__(
+        self,
+        *,
+        input_sha256: str | None = None,
+        raises: bool = False,
+        malformed: bool = False,
+    ):
+        self.input_sha256 = input_sha256
+        self.raises = raises
+        self.malformed = malformed
+        self.calls: list[tuple[Path, str]] = []
 
     def healthcheck(self) -> AdapterHealth:
         return AdapterHealth(
@@ -50,6 +65,30 @@ class ObservationAdapter:
 
     def capabilities(self) -> set[Capability]:
         return {Capability.V1_VISUAL_OBSERVATION}
+
+    def observe(self, image: Path, prompt: str) -> dict:
+        self.calls.append((image, prompt))
+        if self.raises:
+            raise RuntimeError("observer unavailable")
+        if self.malformed:
+            return {"success": True, "provider": self.name}
+        return {
+            "success": True,
+            "provider": self.name,
+            "provider_version": self.version,
+            "input_sha256": self.input_sha256 or sha256_file(image),
+            "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "items": [
+                {
+                    "dimension": "portrait",
+                    "statement": "A centered subject is visible against a uniform background.",
+                    "evidence": ["The subject occupies the central region."],
+                    "confidence": "high",
+                }
+            ],
+            "uncertainties": ["The synthetic fixture contains no semantic detail."],
+            "error": "",
+        }
 
 
 # --- Fixtures ---
@@ -628,3 +667,144 @@ class TestRunner:
         assert evidence.operations[0]["output_sha256"] == result.edit_results[0].output_sha256
         assert len(evidence.comparisons) == 1
         assert evidence.comparisons[0]["candidate_sha256"] == comparison.candidate_sha256
+
+    def test_diagnosis_calls_v1_and_records_observation(self, tmp_image: Path, tmp_path: Path):
+        case_data = {
+            "case_id": "test-observe",
+            "input_image": str(tmp_image),
+            "requested_phase": "diagnosis",
+            "truth_mode": "表达",
+            "visual_intent": "真实但更有完成度",
+            "use_context": "个人社交媒体",
+            "target_medium": "mobile portrait feed",
+            "observation_prompt": "Record only visible portrait and scene facts.",
+            "operations": [],
+            "user_confirmation_status": "pending",
+        }
+        case_file = tmp_path / "case-observe.json"
+        case_file.write_text(json.dumps(case_data), encoding="utf-8")
+        adapter = ObservationAdapter()
+
+        result = run_case(case_file, adapters=[adapter])
+
+        assert result.status == Status.COMPLETED_WITH_USER_CONFIRMATION_PENDING
+        assert len(adapter.calls) == 1
+        assert adapter.calls[0] == (tmp_image, case_data["observation_prompt"])
+        assert isinstance(result.observation_result, ObservationResult)
+        assert result.observation_result.input_sha256 == sha256_file(tmp_image)
+        assert result.observation_result.items[0].dimension == "portrait"
+        evidence = read_evidence(result.evidence_path)
+        assert evidence.observation is not None
+        assert evidence.observation.input_sha256 == sha256_file(tmp_image)
+        assert evidence.observation.provider == "test-observer"
+
+    def test_observation_hash_mismatch_fails_closed(self, tmp_image: Path, tmp_path: Path):
+        case_data = {
+            "case_id": "test-observe-hash",
+            "input_image": str(tmp_image),
+            "requested_phase": "diagnosis",
+            "observation_prompt": "Record visible facts.",
+            "operations": [],
+        }
+        case_file = tmp_path / "case-observe-hash.json"
+        case_file.write_text(json.dumps(case_data), encoding="utf-8")
+
+        result = run_case(
+            case_file,
+            adapters=[ObservationAdapter(input_sha256="0" * 64)],
+        )
+
+        assert result.status == Status.FAILED_EXECUTION
+        assert "SHA-256" in result.error
+        assert result.observation_result is None
+        evidence = read_evidence(result.evidence_path)
+        assert evidence.status == Status.FAILED_EXECUTION
+
+    def test_malformed_observation_fails_closed(self, tmp_image: Path, tmp_path: Path):
+        case_data = {
+            "case_id": "test-observe-malformed",
+            "input_image": str(tmp_image),
+            "requested_phase": "diagnosis",
+            "observation_prompt": "Record visible facts.",
+            "operations": [],
+        }
+        case_file = tmp_path / "case-observe-malformed.json"
+        case_file.write_text(json.dumps(case_data), encoding="utf-8")
+
+        result = run_case(case_file, adapters=[ObservationAdapter(malformed=True)])
+
+        assert result.status == Status.FAILED_EXECUTION
+        assert "Visual observation failed" in result.error
+        evidence = read_evidence(result.evidence_path)
+        assert evidence.status == Status.FAILED_EXECUTION
+
+    def test_observation_exception_fails_closed(self, tmp_image: Path, tmp_path: Path):
+        case_data = {
+            "case_id": "test-observe-error",
+            "input_image": str(tmp_image),
+            "requested_phase": "diagnosis",
+            "observation_prompt": "Record visible facts.",
+            "operations": [],
+        }
+        case_file = tmp_path / "case-observe-error.json"
+        case_file.write_text(json.dumps(case_data), encoding="utf-8")
+
+        result = run_case(case_file, adapters=[ObservationAdapter(raises=True)])
+
+        assert result.status == Status.FAILED_EXECUTION
+        assert "observer unavailable" in result.error
+
+
+class TestHostBridgeObservation:
+    def test_declared_v1_without_observe_operation_is_not_available(self, tmp_path: Path):
+        config = {
+            "provider": "test-host",
+            "healthcheck_time": "2026-08-15T00:00:00Z",
+            "evidence": "Capability declaration only",
+            "capabilities": ["V1_visual_observation"],
+        }
+        config_path = tmp_path / "host.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+
+        health = HostBridgeAdapter(config_path).healthcheck()
+
+        assert Capability.V1_VISUAL_OBSERVATION not in health.capabilities
+
+    def test_reads_schema_valid_hash_bound_observation(self, tmp_image: Path, tmp_path: Path):
+        prompt = "Record visible facts."
+        observation = {
+            "success": True,
+            "provider": "test-host",
+            "provider_version": "2026.08",
+            "input_sha256": sha256_file(tmp_image),
+            "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "items": [
+                {
+                    "dimension": "scene",
+                    "statement": "The frame has a uniform gray field.",
+                    "evidence": ["Pixel values are visually uniform."],
+                    "confidence": "high",
+                }
+            ],
+            "uncertainties": [],
+            "error": "",
+        }
+        observation_path = tmp_path / "observation.json"
+        observation_path.write_text(json.dumps(observation), encoding="utf-8")
+        config = {
+            "provider": "test-host",
+            "healthcheck_time": "2026-08-15T00:00:00Z",
+            "evidence": "Schema-valid observation artifact available",
+            "capabilities": ["V1_visual_observation"],
+            "operations": {
+                "observe": {"mode": "file", "result_path": str(observation_path.resolve())}
+            },
+        }
+        config_path = tmp_path / "host.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        adapter = HostBridgeAdapter(config_path)
+
+        assert Capability.V1_VISUAL_OBSERVATION in adapter.healthcheck().capabilities
+        result = adapter.observe(tmp_image, prompt)
+        assert isinstance(result, ObservationResult)
+        assert result.provider == "test-host"

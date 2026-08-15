@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
+from .adapters.host_bridge import HostBridgeAdapter
 from .capability_probe import CapabilityAdapter, probe_capabilities
 from .compare_candidates import LocalCompareAdapter, compare_images
 from .contracts import (
+    Capability,
     CaseRequest,
     EditRequest,
     EditResult,
     EvidenceRecord,
+    ObservationResult,
     Phase,
     RunResult,
     Status,
@@ -74,6 +78,7 @@ def _write_evidence(
         input_path=str(case.input_image.resolve()),
         input_sha256=(result.capability_report.input_sha256 if result.capability_report else ""),
         capability_report=capability_report,
+        observation=result.observation_result,
         operations=operations,
         comparisons=[
             comparison.model_dump(mode="json") for comparison in result.comparison_results
@@ -138,6 +143,36 @@ def run_case(
         if not result.capability_report.has_v1:
             result.status = Status.BLOCKED_NO_VIEW_CAPABILITY
             result.error = "V1 visual observation required for diagnosis"
+            _write_evidence(case, result, now, case_file)
+            return result
+
+        provider = result.capability_report.capabilities[Capability.V1_VISUAL_OBSERVATION].provider
+        observer = next((adapter for adapter in active_adapters if adapter.name == provider), None)
+        if observer is None:
+            result.status = Status.FAILED_EXECUTION
+            result.error = f"V1 provider adapter not found: {provider}"
+            _write_evidence(case, result, now, case_file)
+            return result
+
+        try:
+            observation = ObservationResult.model_validate(
+                observer.observe(case.input_image, case.observation_prompt)
+            )
+            expected_prompt_sha256 = hashlib.sha256(
+                case.observation_prompt.encode("utf-8")
+            ).hexdigest()
+            if observation.input_sha256 != result.capability_report.input_sha256:
+                raise ValueError("Observation input SHA-256 does not match V0 input")
+            if observation.prompt_sha256 != expected_prompt_sha256:
+                raise ValueError("Observation prompt SHA-256 does not match request")
+            if observation.provider != provider:
+                raise ValueError("Observation provider does not match capability provider")
+            if not observation.success:
+                raise ValueError(observation.error or "Observation provider reported failure")
+            result.observation_result = observation
+        except Exception as exc:
+            result.status = Status.FAILED_EXECUTION
+            result.error = f"Visual observation failed: {exc}"
             _write_evidence(case, result, now, case_file)
             return result
 
@@ -224,6 +259,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Visual Art Direction Runner")
     parser.add_argument("--case", required=True, help="Path to case JSON file")
     parser.add_argument("--output", required=True, help="Output directory")
+    parser.add_argument("--host-config", help="Host bridge capability JSON")
     args = parser.parse_args()
 
     case_file = Path(args.case)
@@ -231,7 +267,14 @@ def main() -> None:
         print(f"Error: Case file not found: {case_file}", file=sys.stderr)
         raise SystemExit(1)
 
-    result = run_case(case_file)
+    adapters = None
+    if args.host_config:
+        adapters = [
+            HostBridgeAdapter(Path(args.host_config)),
+            DeterministicEditorAdapter(),
+            LocalCompareAdapter(),
+        ]
+    result = run_case(case_file, adapters=adapters)
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
     result_path = output_dir / "run-result.json"

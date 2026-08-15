@@ -16,6 +16,7 @@ from ..contracts import (
     ComparisonResult,
     EditRequest,
     EditResult,
+    ObservationResult,
 )
 
 
@@ -34,6 +35,8 @@ class HostBridgeAdapter:
         self._config_path = config_path
         self._config: dict = {}
         self._load_config()
+        self.name = str(self._config.get("provider", self.name))
+        self.version = str(self._config.get("provider_version", self.version))
 
     def _load_config(self) -> None:
         """Load config from JSON file."""
@@ -76,13 +79,7 @@ class HostBridgeAdapter:
                     checked_at=now,
                 )
 
-        # Parse capabilities
-        caps = set()
-        for cap_str in self._config.get("capabilities", []):
-            try:
-                caps.add(Capability(cap_str))
-            except ValueError:
-                pass
+        caps = self.capabilities()
 
         return AdapterHealth(
             name=self.name,
@@ -94,26 +91,34 @@ class HostBridgeAdapter:
         )
 
     def capabilities(self) -> set[Capability]:
-        """Return capabilities from config.
-
-        Returns:
-            Set of capabilities declared in config.
-        """
+        """Return only declared capabilities with an executable bridge operation."""
         caps = set()
         for cap_str in self._config.get("capabilities", []):
             try:
-                caps.add(Capability(cap_str))
+                cap = Capability(cap_str)
             except ValueError:
-                pass
+                continue
+            if cap == Capability.V1_VISUAL_OBSERVATION:
+                operation = self._config.get("operations", {}).get("observe", {})
+                result_path = Path(operation.get("result_path", ""))
+                if operation.get("mode") != "file" or not result_path.is_absolute():
+                    continue
+                try:
+                    ObservationResult.model_validate_json(result_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+            caps.add(cap)
         return caps
 
-    def observe(self, image: Path, prompt: str) -> dict:
-        """Not supported by host bridge in first version.
-
-        Raises:
-            NotImplementedError: Always.
-        """
-        raise NotImplementedError("Host bridge does not support observe in v1")
+    def observe(self, image: Path, prompt: str) -> ObservationResult:
+        """Read and validate a host-produced, file-backed observation result."""
+        operation = self._config.get("operations", {}).get("observe", {})
+        if operation.get("mode") != "file":
+            raise NotImplementedError("Host bridge observe operation is not configured")
+        result_path = Path(operation.get("result_path", ""))
+        if not result_path.is_absolute():
+            raise ValueError("Host observation result_path must be absolute")
+        return ObservationResult.model_validate_json(result_path.read_text(encoding="utf-8"))
 
     def edit(self, request: EditRequest) -> EditResult:
         """Not supported by host bridge in first version.

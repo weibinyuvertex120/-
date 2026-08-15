@@ -64,6 +64,28 @@ class EditStrength(StrEnum):
     GENERATIVE = "generative"
 
 
+class ObservationConfidence(StrEnum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class ObservationDimension(StrEnum):
+    P01 = "P01"
+    P02 = "P02"
+    P03 = "P03"
+    P04 = "P04"
+    P05 = "P05"
+    P06 = "P06"
+    P07 = "P07"
+    P08 = "P08"
+    P09 = "P09"
+    P10 = "P10"
+    SCENE = "scene"
+    PORTRAIT = "portrait"
+    OTHER = "other"
+
+
 # --- Models ---
 
 
@@ -117,6 +139,24 @@ class CapabilityReport(BaseModel, extra="forbid"):
         ).available
 
 
+class ObservationItem(BaseModel, extra="forbid"):
+    dimension: ObservationDimension
+    statement: str = Field(min_length=1)
+    evidence: list[str] = Field(default_factory=list)
+    confidence: ObservationConfidence
+
+
+class ObservationResult(BaseModel, extra="forbid"):
+    success: bool
+    provider: str = Field(min_length=1)
+    provider_version: str = ""
+    input_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    prompt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    items: list[ObservationItem] = Field(min_length=1)
+    uncertainties: list[str] = Field(default_factory=list)
+    error: str = ""
+
+
 class EditRequest(BaseModel, extra="forbid"):
     case_id: str
     input_image: Path
@@ -168,6 +208,7 @@ class EvidenceRecord(BaseModel, extra="forbid"):
     input_path: str = ""
     input_sha256: str = ""
     capability_report: dict[str, Any] = Field(default_factory=dict)
+    observation: ObservationResult | None = None
     operations: list[dict[str, Any]] = Field(default_factory=list)
     comparisons: list[dict[str, Any]] = Field(default_factory=list)
     user_confirmation: UserConfirmationStatus = UserConfirmationStatus.PENDING
@@ -180,6 +221,10 @@ class CaseRequest(BaseModel, extra="forbid"):
     input_image: Path
     requested_phase: Phase
     truth_mode: TruthMode = TruthMode.DOCUMENTARY
+    visual_intent: str = ""
+    use_context: str = ""
+    target_medium: str = ""
+    observation_prompt: str = ""
     must_preserve: list[str] = Field(default_factory=list)
     allowed_changes: list[str] = Field(default_factory=list)
     forbidden_changes: list[str] = Field(default_factory=list)
@@ -198,6 +243,7 @@ class RunResult(BaseModel, extra="forbid"):
     case_id: str
     status: Status
     capability_report: CapabilityReport | None = None
+    observation_result: ObservationResult | None = None
     edit_results: list[EditResult] = Field(default_factory=list)
     comparison_results: list[ComparisonResult] = Field(default_factory=list)
     evidence_path: Path | None = None

@@ -553,10 +553,10 @@ description: 见相：对照片、插图、截图、视频画面或其他视觉�
 
 | 等级 | 名称 | 说明 |
 |------|------|------|
-| V0 | 文件访问 | 读取图片、获取尺寸、计算 SHA-256 |
-| V1 | 视觉观察 | 实际查看图片、记录事实观察（需要 adapter） |
-| V2 | 图像编辑 | 执行 L1/L2 确定性操作（内置 Pillow） |
-| V3 | 结果比较 | 原图与候选工程比较（内置 local-compare） |
+| V0 | 文件访问 | 核心运行时默认可用：读取图片、获取尺寸、计算 SHA-256 |
+| V1 | 视觉观察 | 外部观察 adapter 按现场启用；默认不提供，必须有可执行、可校验的结构化观察路径 |
+| V2 | 图像编辑 | 核心运行时提供有限的 L1/L2 确定性操作（内置 Pillow）；不代表 L3/L4 |
+| V3 | 结果比较 | 核心运行时提供 local-compare 工程比较；不代表审美判断或用户确认 |
 
 ### 内置确定性编辑能力
 
@@ -598,9 +598,11 @@ description: 见相：对照片、插图、截图、视频画面或其他视觉�
 ### 真实证据要求
 
 - V0: 文件存在、Pillow 可识别、SHA-256 计算成功
-- V1: 必须由 adapter healthcheck 返回真实证据
-- V2: 必须由 adapter healthcheck 返回真实证据
-- V3: 必须由 adapter healthcheck 返回真实证据
+- V1: adapter 必须有真实 `observe(image, prompt)` 执行路径，并返回 schema-valid 观察结果
+- V1: 观察结果必须绑定输入图片 SHA-256 和本次 prompt SHA-256
+- V1: malformed、adapter exception 或 hash mismatch 必须 fail-closed
+- V2: 内置 deterministic-pillow 只证明 L1/L2；外部 adapter 必须同时具备健康证据和实际执行路径
+- V3: 内置 local-compare 只证明工程差异报告；不能把它写成审美质量通过
 - adapter 名称本身不能让能力变成 true
 
 详细运行时契约，请读取 `references/runtime-contract.md`。

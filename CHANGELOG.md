@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Formalized Seeform as a visual decision and transformation layer for AI agents.
+- Added a direct, low-burden user surface: one visual intent produces a concise viewpoint and a default direction before execution.
+- Documented the difference from generic AI photo editing: Seeform owns visual judgment, strategy explanation, constraints, comparison, and feedback continuity while adapters provide editing capabilities.
+- Focused V1 product validation on ordinary photos and portrait expression for Chinese social-media use cases, including Xiaohongshu publishing.
+- Set unspecified cases to expression mode by default while preserving explicit documentary mode, and documented capability-dependent portrait routing.
 - Added one canonical `seeform` execution entry with a bundle module fallback.
 - Added the minimal Visual Transformation Plan contract and execution gates.
 - Added bounded, non-destructive local L3 adjustment with candidate rollback lineage.

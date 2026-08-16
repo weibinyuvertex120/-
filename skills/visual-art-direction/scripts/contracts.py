@@ -447,7 +447,7 @@ class CaseRequest(BaseModel, extra="forbid"):
     case_id: str
     input_image: Path
     requested_phase: Phase
-    truth_mode: TruthMode = TruthMode.DOCUMENTARY
+    truth_mode: TruthMode = TruthMode.EXPRESSION
     visual_intent: str = ""
     use_context: str = ""
     target_medium: str = ""

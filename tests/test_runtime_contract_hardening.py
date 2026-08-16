@@ -22,6 +22,7 @@ from scripts.contracts import (
     CaseRequest,
     ComparisonResult,
     Status,
+    TruthMode,
     UserFeedback,
     VisualTransformationPlan,
     canonical_plan_sha256,
@@ -161,6 +162,20 @@ def test_old_confirmation_field_cannot_claim_user_approval(tmp_path: Path) -> No
                 "user_confirmation_status": "confirmed",
             }
         )
+
+
+def test_case_defaults_to_expression_mode_for_product_surface(tmp_path: Path) -> None:
+    image = _image(tmp_path / "input.png")
+
+    case = CaseRequest.model_validate(
+        {
+            "case_id": "default-expression-mode",
+            "input_image": str(image.resolve()),
+            "requested_phase": "diagnosis",
+        }
+    )
+
+    assert case.truth_mode == TruthMode.EXPRESSION
 
 
 def test_plan_binds_to_a_structured_source_observation(tmp_path: Path) -> None:

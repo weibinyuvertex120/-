@@ -4,7 +4,15 @@
 
 ## 它是什么
 
-见相（Visual Transformation Skill）是一个面向 AI Agent 的视觉转化 Skill。
+见相（Seeform）是一个面向 AI Agent 的视觉判断与转化 Skill。它从用户想表达什么开始，先理解照片、判断问题与潜力，再提出一个直接可理解的视觉观点，调用合适的编辑能力，并通过用户选择逐渐理解个人偏好。
+
+Seeform 的核心体验是：
+
+```text
+一句感觉或用途 -> 一次简短观点 -> 一个默认方向 -> 少量候选 -> 一次用户决定
+```
+
+用户可以说“人物好看一点”“真实但更有状态”或“适合发小红书”。Seeform 应先给出判断和默认方案，不把内部的观察、诊断、路由和证据契约变成多轮问卷。
 
 我始终相信，每一张照片都承载着意义、经历和回忆。
 
@@ -12,7 +20,7 @@
 
 照片本身拥有的潜力，只是还没有被看见。
 
-见相不只是给照片套用风格。它会先理解照片，发现照片的问题与潜力，再根据你想表达的感觉，寻找合适的视觉语言和具体的改变。
+见相不只是给照片套用风格。它会先理解照片，发现照片的问题与潜力，再根据你想表达的感觉和使用场景，给出一个有理由的视觉观点，寻找合适的视觉语言和具体的改变。
 
 ## 为什么有用
 
@@ -62,7 +70,23 @@
 -> 用户确认
 ```
 
-见相不从滤镜开始，也不替用户决定什么才是美。它先理解照片，再寻找照片真正适合的表达方式。
+见相不从滤镜开始，也不替用户决定什么才是美。它先理解照片，再给出照片真正适合的表达观点；用户只需用一句话确认或纠正方向。
+
+## 与普通 AI 修图的区别
+
+普通 AI 修图通常从一个动作或效果开始：美颜、调色、磨皮、换背景、扩图、消除或套用风格，重点是快速执行既定操作。
+
+Seeform 的差异在于：
+
+- 从“我想表达什么”开始，而不是从滤镜或参数开始；
+- 先解释照片哪里没有成立，再决定改什么；
+- 根据照片、用途和用户语言形成观点，不默认套用平台审美；
+- 比较不同视觉策略及其代价，不只展示一张改前改后；
+- 明确允许改变、必须保留和停止条件；
+- 用一次简单确认替代用户反复试参数；
+- 只从明确用户决定中形成可解释的个人视觉偏好。
+
+Seeform 不声称底层编辑能力天然比成熟影像产品更强。模型负责生成，编辑器负责执行，Seeform 负责理解、判断、提案、约束、比较和反馈闭环。
 
 ## 能力边界
 
@@ -123,4 +147,6 @@ Apache License 2.0，详见 [LICENSE](LICENSE)。
 
 ## English
 
-Seeform is a tool-agnostic visual transformation skill for AI agents. It turns visual intent into image diagnosis, editing decisions, and verifiable changes while keeping identity, scene relationships, and authenticity in view.
+Seeform is a tool-agnostic visual decision and transformation skill for AI agents. It turns visual intent into a concise viewpoint, image diagnosis, editing decisions, and verifiable changes while keeping identity, scene relationships, and authenticity in view.
+
+The product contract is documented in [PRODUCT.md](PRODUCT.md).

@@ -80,6 +80,14 @@
     "should_trigger": true
   },
   {
+    "query": "这张人物照状态不错，帮我处理得适合发小红书。",
+    "should_trigger": true
+  },
+  {
+    "query": "人物好看一点，真实但更有状态，直接给我一个方向。",
+    "should_trigger": true
+  },
+  {
     "query": "把这张照片变成复古胶片风，给我一段可以直接复制到图片模型里的提示词。",
     "should_trigger": false
   },

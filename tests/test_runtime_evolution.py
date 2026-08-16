@@ -28,8 +28,10 @@ from scripts.contracts import (
     EditOperation,
     EditRequest,
     EditResult,
+    ObservationResult,
     RunResult,
     Status,
+    canonical_observation_sha256,
 )
 from scripts.deterministic_editor import DeterministicEditorAdapter
 from scripts.evidence import read_evidence, sha256_file
@@ -88,6 +90,8 @@ class RecordingCompareAdapter:
         candidate_id: str = "",
         parent_candidate_id: str = "",
         plan_id: str = "",
+        operation: EditOperation | str | None = None,
+        parameters: dict | None = None,
     ) -> ComparisonResult:
         self.calls.append((original, candidate))
         return compare_images(
@@ -97,6 +101,8 @@ class RecordingCompareAdapter:
             candidate_id=candidate_id,
             parent_candidate_id=parent_candidate_id,
             plan_id=plan_id,
+            operation=operation,
+            parameters=parameters,
         )
 
 
@@ -105,7 +111,28 @@ def _image(path: Path, *, color: tuple[int, int, int] = (128, 128, 128)) -> Path
     return path
 
 
-def _plan(*operations: str) -> dict:
+def _observation(image: Path) -> dict:
+    return {
+        "success": True,
+        "provider": "test-observer",
+        "provider_version": "1.0.0",
+        "input_sha256": sha256_file(image),
+        "prompt_sha256": "0" * 64,
+        "items": [
+            {
+                "dimension": "scene",
+                "statement": "A centered subject is visible.",
+                "evidence": ["The subject occupies the center of the frame."],
+                "confidence": "high",
+            }
+        ],
+        "uncertainties": [],
+        "error": "",
+    }
+
+
+def _plan(observation: dict, *operations: str) -> dict:
+    parsed = ObservationResult.model_validate(observation)
     return {
         "plan_id": "plan-1",
         "visual_goal": "Make the subject easier to read without changing scene facts.",
@@ -116,6 +143,15 @@ def _plan(*operations: str) -> dict:
         "allowed_changes": list(operations),
         "forbidden_changes": ["generation"],
         "stop_condition": "Stop after the bounded operation succeeds.",
+        "decision_source": "agent",
+        "basis": [
+            {
+                "observation_index": 0,
+                "dimension": "scene",
+                "evidence": "The subject occupies the center of the frame.",
+            }
+        ],
+        "observation_sha256": canonical_observation_sha256(parsed),
     }
 
 
@@ -136,6 +172,8 @@ def test_installed_command_points_to_the_same_runtime_main() -> None:
     pyproject = tomllib.loads(
         (SKILL_ROOT.parents[1] / "pyproject.toml").read_text(encoding="utf-8")
     )
+    if pyproject["project"]["name"] != "seeform-visual-art-direction":
+        pytest.skip("Console entry is owned by the standalone publish package")
 
     assert pyproject["project"]["scripts"]["seeform"] == "scripts.runner:main"
 
@@ -200,13 +238,15 @@ def test_capability_report_serializes_complete_fields(tmp_path: Path) -> None:
 
 def test_plan_rejects_an_operation_outside_its_contract(tmp_path: Path) -> None:
     input_image = _image(tmp_path / "input.png")
+    observation = _observation(input_image)
     output_image = tmp_path / "output.png"
     case = {
         "case_id": "plan-mismatch",
         "input_image": str(input_image.resolve()),
         "requested_phase": "edit",
         "truth_mode": "表达",
-        "plan": _plan("crop"),
+        "source_observation": observation,
+        "plan": _plan(observation, "crop"),
         "operations": [
             {
                 "case_id": "plan-mismatch",
@@ -230,13 +270,15 @@ def test_plan_rejects_an_operation_outside_its_contract(tmp_path: Path) -> None:
 
 def test_plan_rejects_an_operation_above_recommended_level(tmp_path: Path) -> None:
     input_image = _image(tmp_path / "input.png")
+    observation = _observation(input_image)
     output_image = tmp_path / "output.png"
-    plan = _plan("crop")
+    plan = _plan(observation, "crop")
     plan["recommended_level"] = "L1"
     case = {
         "case_id": "plan-level-mismatch",
         "input_image": str(input_image.resolve()),
         "requested_phase": "edit",
+        "source_observation": observation,
         "plan": plan,
         "operations": [
             {
@@ -345,6 +387,8 @@ def test_compare_phase_accepts_existing_candidate_with_lineage(tmp_path: Path) -
                 "parent_candidate_id": "original",
                 "parent_sha256": sha256_file(original),
                 "plan_id": "plan-external",
+                "operation": "exposure_contrast_color",
+                "parameters": {"exposure": 0.1},
             }
         ],
     }
@@ -353,7 +397,7 @@ def test_compare_phase_accepts_existing_candidate_with_lineage(tmp_path: Path) -
 
     result = run_case(case_file)
 
-    assert result.status == Status.COMPLETED_WITH_USER_CONFIRMATION_PENDING
+    assert result.status == Status.COMPLETED_WITH_USER_FEEDBACK_PENDING
     assert result.comparison_results[0].candidate_id == "candidate-existing"
     assert result.comparison_results[0].changed_pixels == 1
     assert result.candidate_lineage[0].parent_candidate_id == "original"
@@ -370,13 +414,15 @@ def test_compare_phase_accepts_existing_candidate_with_lineage(tmp_path: Path) -
 
 def test_edit_records_plan_lineage_and_complete_capabilities(tmp_path: Path) -> None:
     input_image = _image(tmp_path / "input.png")
+    observation = _observation(input_image)
     output_image = tmp_path / "output.png"
     case = {
         "case_id": "lineage-edit",
         "input_image": str(input_image.resolve()),
         "requested_phase": "edit",
         "truth_mode": "表达",
-        "plan": _plan("exposure_contrast_color"),
+        "source_observation": observation,
+        "plan": _plan(observation, "exposure_contrast_color"),
         "operations": [
             {
                 "case_id": "lineage-edit",
@@ -395,7 +441,7 @@ def test_edit_records_plan_lineage_and_complete_capabilities(tmp_path: Path) -> 
 
     result = run_case(case_file)
 
-    assert result.status == Status.COMPLETED_WITH_USER_CONFIRMATION_PENDING
+    assert result.status == Status.COMPLETED_PHASE
     assert result.plan is not None and result.plan.plan_id == "plan-1"
     assert len(result.candidate_lineage) == 1
     lineage = result.candidate_lineage[0]
@@ -494,7 +540,7 @@ def test_runner_dispatches_edit_to_reported_v2_provider(tmp_path: Path) -> None:
 
     result = run_case(case_file, adapters=[adapter])
 
-    assert result.status == Status.COMPLETED_WITH_USER_CONFIRMATION_PENDING
+    assert result.status == Status.COMPLETED_PHASE
     assert len(adapter.calls) == 1
 
 
@@ -514,6 +560,8 @@ def test_runner_dispatches_comparison_to_reported_v3_provider(tmp_path: Path) ->
                 "parent_candidate_id": "original",
                 "parent_sha256": sha256_file(original),
                 "plan_id": "plan-a",
+                "operation": "exposure_contrast_color",
+                "parameters": {"exposure": 0.1},
             }
         ],
     }
@@ -522,7 +570,7 @@ def test_runner_dispatches_comparison_to_reported_v3_provider(tmp_path: Path) ->
 
     result = run_case(case_file, adapters=[adapter])
 
-    assert result.status == Status.COMPLETED_WITH_USER_CONFIRMATION_PENDING
+    assert result.status == Status.COMPLETED_WITH_USER_FEEDBACK_PENDING
     assert adapter.calls == [(original.resolve(), candidate.resolve())]
 
 
@@ -604,6 +652,8 @@ def test_case_rejects_duplicate_comparison_ids_and_mixed_candidate_sources(
         "parent_candidate_id": "original",
         "parent_sha256": sha256_file(input_image),
         "plan_id": "plan-a",
+        "operation": "exposure_contrast_color",
+        "parameters": {"exposure": 0.1},
     }
     base = {
         "case_id": "invalid-candidates",
@@ -643,7 +693,7 @@ def test_case_rejects_duplicate_comparison_ids_and_mixed_candidate_sources(
     assert duplicate_result.status == Status.FAILED_INVALID_CONTRACT
     assert "duplicate" in duplicate_result.error.lower()
     assert mixed_result.status == Status.FAILED_INVALID_CONTRACT
-    assert "both" in mixed_result.error.lower()
+    assert "full phase" in mixed_result.error.lower()
 
 
 def test_html_comparison_report_escapes_lineage_fields(tmp_path: Path) -> None:

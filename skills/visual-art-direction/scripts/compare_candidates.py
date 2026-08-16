@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from .contracts import AdapterHealth, Capability, ComparisonResult
+from .contracts import AdapterHealth, Capability, ComparisonResult, EditOperation
 from .evidence import sha256_file
 
 
@@ -44,6 +44,8 @@ class LocalCompareAdapter:
         candidate_id: str = "",
         parent_candidate_id: str = "",
         plan_id: str = "",
+        operation: EditOperation | str | None = None,
+        parameters: dict | None = None,
     ) -> ComparisonResult:
         return compare_images(
             original,
@@ -52,6 +54,8 @@ class LocalCompareAdapter:
             candidate_id=candidate_id,
             parent_candidate_id=parent_candidate_id,
             plan_id=plan_id,
+            operation=operation,
+            parameters=parameters,
         )
 
 
@@ -79,6 +83,12 @@ def _get_image_info(path: Path) -> tuple[bool, tuple[int, int], str]:
         return False, (0, 0), ""
 
 
+def _image_pixels(image: Image.Image) -> list:
+    """Read flattened pixels across the supported Pillow version range."""
+    flattened = getattr(image, "get_flattened_data", None)
+    return list(flattened() if flattened is not None else image.getdata())
+
+
 def _compute_pixel_diff(
     original: Path, candidate: Path
 ) -> tuple[int, int, tuple[int, int, int, int] | None]:
@@ -90,12 +100,12 @@ def _compute_pixel_diff(
     try:
         with Image.open(original) as orig_img:
             orig_img = orig_img.convert("RGB")
-            orig_data = list(orig_img.get_flattened_data())
+            orig_data = _image_pixels(orig_img)
             orig_size = orig_img.size
 
         with Image.open(candidate) as cand_img:
             cand_img = cand_img.convert("RGB")
-            cand_data = list(cand_img.get_flattened_data())
+            cand_data = _image_pixels(cand_img)
             cand_size = cand_img.size
 
         # Sizes must match for pixel comparison
@@ -139,6 +149,7 @@ def _generate_html_report(
     candidate_id = html.escape(result.candidate_id, quote=True)
     parent_candidate_id = html.escape(result.parent_candidate_id, quote=True)
     plan_id = html.escape(result.plan_id, quote=True)
+    operation = html.escape(result.operation.value if result.operation else "unknown", quote=True)
     pixel_change_summary = html.escape(result.pixel_change_summary, quote=True)
     bounding_box = html.escape(str(result.change_bounding_box), quote=True)
     html_document = f"""<!DOCTYPE html>
@@ -185,10 +196,14 @@ def _generate_html_report(
         <tr><td>Candidate ID</td><td>{candidate_id}</td></tr>
         <tr><td>Parent Candidate ID</td><td>{parent_candidate_id}</td></tr>
         <tr><td>Plan ID</td><td>{plan_id}</td></tr>
+        <tr><td>Operation</td><td>{operation}</td></tr>
         <tr><td>Original Readable</td><td>{"Yes" if result.original_readable else "No"}</td></tr>
         <tr><td>Candidate Readable</td><td>{"Yes" if result.candidate_readable else "No"}</td></tr>
         <tr><td>Pixel Change Summary</td><td>{pixel_change_summary}</td></tr>
         <tr><td>Change Bounding Box</td><td>{bounding_box}</td></tr>
+        <tr><td>Crop Box</td><td>{html.escape(str(result.crop_box), quote=True)}</td></tr>
+        <tr><td>Retained Area</td><td>{result.retained_area_pixels}</td></tr>
+        <tr><td>Removed Area</td><td>{result.removed_area_pixels}</td></tr>
     </table>
 
     <h2>Limitations</h2>
@@ -215,6 +230,8 @@ def compare_images(
     candidate_id: str = "",
     parent_candidate_id: str = "",
     plan_id: str = "",
+    operation: EditOperation | str | None = None,
+    parameters: dict | None = None,
 ) -> ComparisonResult:
     """Compare original and candidate images.
 
@@ -226,10 +243,12 @@ def compare_images(
     Returns:
         ComparisonResult with engineering comparison.
     """
+    normalized_operation = EditOperation(operation) if operation is not None else None
     result = ComparisonResult(
         candidate_id=candidate_id,
         parent_candidate_id=parent_candidate_id,
         plan_id=plan_id,
+        operation=normalized_operation,
     )
 
     # Get original info
@@ -252,8 +271,35 @@ def compare_images(
         result.error = f"Candidate image not readable: {candidate}"
         return result
 
-    # Compute pixel differences
-    if orig_size == cand_size:
+    if normalized_operation == EditOperation.CROP:
+        crop_box = tuple((parameters or {}).get("box", ()))
+        if len(crop_box) != 4:
+            result.error = "Crop comparison requires a four-coordinate crop box"
+            return result
+        left, upper, right, lower = crop_box
+        if not (0 <= left < right <= orig_size[0] and 0 <= upper < lower <= orig_size[1]):
+            result.error = "Crop box is outside the direct parent image"
+            return result
+        expected_size = (right - left, lower - upper)
+        if cand_size != expected_size:
+            result.error = (
+                f"Crop candidate size {cand_size} does not match crop box size {expected_size}"
+            )
+            return result
+        source_area = orig_size[0] * orig_size[1]
+        retained_area = expected_size[0] * expected_size[1]
+        removed_area = source_area - retained_area
+        result.crop_box = crop_box
+        result.source_area_pixels = source_area
+        result.retained_area_pixels = retained_area
+        result.removed_area_pixels = removed_area
+        result.retained_ratio = retained_area / source_area
+        result.removed_ratio = removed_area / source_area
+        result.pixel_change_summary = (
+            f"Crop retained {retained_area}/{source_area} pixels "
+            f"({result.retained_ratio * 100:.1f}%)"
+        )
+    elif orig_size == cand_size:
         result.size_matches = True
         changed, total, bbox = _compute_pixel_diff(original, candidate)
         if changed >= 0:
@@ -278,6 +324,7 @@ def compare_images(
         "candidate_id": result.candidate_id,
         "parent_candidate_id": result.parent_candidate_id,
         "plan_id": result.plan_id,
+        "operation": result.operation.value if result.operation else None,
         "original_readable": result.original_readable,
         "candidate_readable": result.candidate_readable,
         "original_sha256": result.original_sha256,
@@ -292,6 +339,12 @@ def compare_images(
         "change_bounding_box": (
             list(result.change_bounding_box) if result.change_bounding_box else None
         ),
+        "crop_box": list(result.crop_box) if result.crop_box else None,
+        "source_area_pixels": result.source_area_pixels,
+        "retained_area_pixels": result.retained_area_pixels,
+        "removed_area_pixels": result.removed_area_pixels,
+        "retained_ratio": result.retained_ratio,
+        "removed_ratio": result.removed_ratio,
         "generated_at": datetime.now().isoformat(),
         "limitations": [
             "Pixel changes do not indicate whether the main problem was improved",

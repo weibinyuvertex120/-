@@ -69,7 +69,7 @@
 当前版本是面向 Agent 宿主的 Skill MVP，不是独立的照片编辑应用。
 
 - V0 文件读取：已具备；
-- V1 真实视觉观察：默认不可用；只有宿主提供文件型、结构化且 hash 可校验的观察 adapter 时才启用；
+- V1 真实视觉观察：默认不可用；可通过宿主文件桥或本地 llama.cpp + Qwen3-VL GGUF adapter 按现场启用；
 - V2 基础编辑：核心支持 Pillow 确定性 L1/L2，以及有 Plan 约束的矩形局部 L3 调整；不代表生成式 L3/L4；
 - V3 工程比较：核心支持已有候选、父候选、尺寸、SHA-256、结构化像素指标和报告生成，不代表审美判断；
 - 审美判断与最终确认：由宿主能力和用户共同完成。
@@ -94,6 +94,10 @@ seeform --case .\case.json --output .\output
 
 直接使用 Skill bundle 时，在 `skills/visual-art-direction` 下运行
 `python -m scripts --case .\case.json --output .\output`；两种形式进入同一个 `scripts.runner:main`。
+
+本地 Qwen3-VL 观察使用 `--llama-cpp-config` 接入已启动的 loopback `llama-server`。模型、
+mmproj、启动命令和配置示例见
+`skills/visual-art-direction/references/llama-cpp-local-observation.md`。
 
 ## 项目结构
 

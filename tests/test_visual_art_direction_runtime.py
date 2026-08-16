@@ -24,7 +24,7 @@ from scripts.contracts import (
     EvidenceRecord,
     ObservationResult,
     Status,
-    UserConfirmationStatus,
+    canonical_observation_sha256,
 )
 from scripts.deterministic_editor import (
     DeterministicEditorAdapter,
@@ -131,7 +131,6 @@ def tmp_case_file(tmp_path: Path, tmp_image: Path, tmp_output: Path) -> Path:
                 "output_image": str(tmp_output),
             }
         ],
-        "user_confirmation_status": "pending",
     }
     case_file = tmp_path / "case.json"
     with open(case_file, "w", encoding="utf-8") as f:
@@ -408,7 +407,6 @@ class TestEvidence:
             capability_report={"v0": True, "v1": False},
             operations=[{"op": "test", "success": True}],
             comparisons=[],
-            user_confirmation=UserConfirmationStatus.PENDING,
             status=Status.COMPLETED,
             residual_risks=["test risk"],
         )
@@ -453,7 +451,6 @@ class TestRunner:
             "requested_phase": "diagnosis",
             "truth_mode": "纪实",
             "operations": [],
-            "user_confirmation_status": "pending",
         }
         case_file = tmp_path / "case.json"
         with open(case_file, "w") as f:
@@ -470,7 +467,6 @@ class TestRunner:
             "requested_phase": "diagnosis",
             "truth_mode": "纪实",
             "operations": [],
-            "user_confirmation_status": "pending",
         }
         case_file = tmp_path / "case.json"
         with open(case_file, "w") as f:
@@ -500,14 +496,13 @@ class TestRunner:
                     "output_image": str(tmp_output),
                 }
             ],
-            "user_confirmation_status": "pending",
         }
         case_file = tmp_path / "case.json"
         with open(case_file, "w") as f:
             json.dump(case_data, f)
 
         result = run_case(case_file)
-        assert result.status == Status.COMPLETED_WITH_USER_CONFIRMATION_PENDING
+        assert result.status == Status.COMPLETED_PHASE
         assert len(result.edit_results) == 1
         assert result.edit_results[0].success
 
@@ -532,7 +527,6 @@ class TestRunner:
                     "output_image": str(tmp_image),
                 }
             ],
-            "user_confirmation_status": "pending",
         }
         case_file = tmp_path / "case.json"
         with open(case_file, "w") as f:
@@ -564,7 +558,6 @@ class TestRunner:
                     "output_image": str(tmp_output),
                 }
             ],
-            "user_confirmation_status": "pending",
         }
         case_file = tmp_path / "case.json"
         with open(case_file, "w") as f:
@@ -581,7 +574,6 @@ class TestRunner:
             "requested_phase": "diagnosis",
             "truth_mode": "纪实",
             "operations": [],
-            "user_confirmation_status": "pending",
         }
         case_file = tmp_path / "case.json"
         with open(case_file, "w") as f:
@@ -610,7 +602,6 @@ class TestRunner:
                     "output_image": str(tmp_output),
                 }
             ],
-            "user_confirmation_status": "pending",
         }
         case_file = tmp_path / "case-no-v2.json"
         case_file.write_text(json.dumps(case_data), encoding="utf-8")
@@ -625,11 +616,33 @@ class TestRunner:
     ):
         """Full phase produces engineering comparisons and traceable evidence."""
         candidate = tmp_path / "candidate.png"
+        observation = ObservationResult.model_validate(ObservationAdapter().observe(tmp_image, ""))
         case_data = {
             "case_id": "test-full",
             "input_image": str(tmp_image),
             "requested_phase": "full",
             "truth_mode": "纪实",
+            "source_observation": observation.model_dump(mode="json"),
+            "plan": {
+                "plan_id": "plan-full",
+                "visual_goal": "Make the subject easier to read.",
+                "recommended_level": "L1",
+                "operations": ["exposure_contrast_color"],
+                "success_criteria": ["The bounded exposure change is present."],
+                "must_preserve": ["identity"],
+                "allowed_changes": ["exposure", "contrast"],
+                "forbidden_changes": ["face_structure"],
+                "stop_condition": "Stop after the bounded edit.",
+                "decision_source": "agent",
+                "basis": [
+                    {
+                        "observation_index": 0,
+                        "dimension": "portrait",
+                        "evidence": "The subject occupies the central region.",
+                    }
+                ],
+                "observation_sha256": canonical_observation_sha256(observation),
+            },
             "operations": [
                 {
                     "case_id": "test-full",
@@ -644,7 +657,6 @@ class TestRunner:
                     "output_image": str(candidate),
                 }
             ],
-            "user_confirmation_status": "pending",
         }
         case_file = tmp_path / "case-full.json"
         case_file.write_text(json.dumps(case_data), encoding="utf-8")
@@ -655,7 +667,7 @@ class TestRunner:
             now=__import__("datetime").datetime(2025, 1, 1),
         )
 
-        assert result.status == Status.COMPLETED_WITH_USER_CONFIRMATION_PENDING
+        assert result.status == Status.COMPLETED_WITH_USER_FEEDBACK_PENDING
         assert len(result.comparison_results) == 1
         comparison = result.comparison_results[0]
         assert comparison.candidate_readable
@@ -679,7 +691,6 @@ class TestRunner:
             "target_medium": "mobile portrait feed",
             "observation_prompt": "Record only visible portrait and scene facts.",
             "operations": [],
-            "user_confirmation_status": "pending",
         }
         case_file = tmp_path / "case-observe.json"
         case_file.write_text(json.dumps(case_data), encoding="utf-8")
@@ -687,7 +698,7 @@ class TestRunner:
 
         result = run_case(case_file, adapters=[adapter])
 
-        assert result.status == Status.COMPLETED_WITH_USER_CONFIRMATION_PENDING
+        assert result.status == Status.COMPLETED_PHASE
         assert len(adapter.calls) == 1
         assert adapter.calls[0] == (tmp_image, case_data["observation_prompt"])
         assert isinstance(result.observation_result, ObservationResult)

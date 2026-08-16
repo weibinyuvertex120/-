@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .adapters.host_bridge import HostBridgeAdapter
+from .adapters.llama_cpp import LlamaCppQwenAdapter
 from .capability_probe import CapabilityAdapter, probe_capabilities
 from .compare_candidates import LocalCompareAdapter
 from .contracts import (
@@ -28,7 +29,7 @@ from .contracts import (
     Phase,
     RunResult,
     Status,
-    UserConfirmationStatus,
+    UserFeedbackDecision,
 )
 from .deterministic_editor import DeterministicEditorAdapter
 from .evidence import sha256_file, write_evidence
@@ -102,17 +103,18 @@ def _write_evidence(
         capability_report=capability_report,
         observation=result.observation_result,
         plan=result.plan,
+        parent_plan=result.parent_plan,
         operations=operations,
         candidate_lineage=result.candidate_lineage,
         comparisons=[
             comparison.model_dump(mode="json") for comparison in result.comparison_results
         ],
-        user_confirmation=case.user_confirmation_status,
+        user_feedback=result.user_feedback,
         status=result.status,
         residual_risks=[
             "Deterministic V2 covers L1/L2 and bounded local L3 adjustment only",
             "Engineering comparison does not replace visual or aesthetic judgment",
-            "User confirmation is recorded separately and remains required",
+            "UserFeedback is recorded separately and remains required for final acceptance",
         ],
     )
     output_path = _evidence_path(case_file, case.case_id, now)
@@ -164,8 +166,17 @@ def run_case(
         return result
 
     result.plan = case.plan
+    result.parent_plan = case.parent_plan
+    result.user_feedback = case.user_feedback
+    if case.source_observation is not None:
+        result.observation_result = case.source_observation
+        if case.source_observation.input_sha256 != result.capability_report.input_sha256:
+            result.status = Status.FAILED_INVALID_CONTRACT
+            result.error = "source_observation input SHA-256 does not match V0 input"
+            _write_evidence(case, result, now, case_file)
+            return result
 
-    if case.requested_phase in (Phase.DIAGNOSIS, Phase.FULL):
+    if case.requested_phase == Phase.DIAGNOSIS:
         if not result.capability_report.has_v1:
             result.status = Status.BLOCKED_NO_VIEW_CAPABILITY
             result.error = "V1 visual observation required for diagnosis"
@@ -284,6 +295,14 @@ def run_case(
             if request.parent_candidate_id == "original":
                 expected_input = case.input_image.resolve()
                 expected_hash = result.capability_report.input_sha256
+            elif (
+                index == 0
+                and case.plan is not None
+                and case.plan.decision_source.value == "hybrid"
+                and request.parent_candidate_id == case.plan.parent_candidate_id
+            ):
+                expected_input = request.input_image.resolve()
+                expected_hash = case.plan.parent_candidate_sha256 or ""
             else:
                 parent = next(
                     (
@@ -398,6 +417,8 @@ def run_case(
                     input_sha256=reference.parent_sha256,
                     output_path=reference.image_path.resolve(),
                     output_sha256=reference.image_sha256,
+                    operation=reference.operation,
+                    parameters=reference.parameters,
                 )
                 result.candidate_lineage.append(lineage)
                 known_parents[reference.candidate_id] = (
@@ -443,6 +464,8 @@ def run_case(
                         candidate_id=lineage.candidate_id,
                         parent_candidate_id=lineage.parent_candidate_id,
                         plan_id=lineage.plan_id,
+                        operation=lineage.operation,
+                        parameters=lineage.parameters,
                     )
                 )
             except Exception as exc:
@@ -451,7 +474,7 @@ def run_case(
                 _write_evidence(case, result, now, case_file)
                 return result
             result.comparison_results.append(comparison)
-            if not comparison.candidate_readable:
+            if comparison.error or not comparison.candidate_readable:
                 result.status = Status.FAILED_EXECUTION
                 result.error = f"Candidate comparison failed: {comparison.error}"
                 _write_evidence(case, result, now, case_file)
@@ -462,6 +485,7 @@ def run_case(
                 or comparison.plan_id != lineage.plan_id
                 or comparison.original_sha256 != lineage.input_sha256
                 or comparison.candidate_sha256 != lineage.output_sha256
+                or comparison.operation != lineage.operation
             ):
                 result.status = Status.FAILED_EXECUTION
                 result.error = (
@@ -470,11 +494,16 @@ def run_case(
                 _write_evidence(case, result, now, case_file)
                 return result
 
-    result.status = (
-        Status.COMPLETED_WITH_USER_CONFIRMATION_PENDING
-        if case.user_confirmation_status == UserConfirmationStatus.PENDING
-        else Status.COMPLETED
-    )
+    if case.requested_phase in (Phase.DIAGNOSIS, Phase.EDIT):
+        result.status = Status.COMPLETED_PHASE
+    elif case.user_feedback is None:
+        result.status = Status.COMPLETED_WITH_USER_FEEDBACK_PENDING
+    elif case.user_feedback.decision == UserFeedbackDecision.ACCEPTED:
+        result.status = Status.COMPLETED
+    elif case.user_feedback.decision == UserFeedbackDecision.REJECTED:
+        result.status = Status.REJECTED
+    else:
+        result.status = Status.CHANGES_REQUESTED
     result.execution_time_ms = (time.time() - started) * 1000
     _write_evidence(case, result, now, case_file)
     return result
@@ -484,7 +513,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Visual Art Direction Runner")
     parser.add_argument("--case", required=True, help="Path to case JSON file")
     parser.add_argument("--output", required=True, help="Output directory")
-    parser.add_argument("--host-config", help="Host bridge capability JSON")
+    v1_source = parser.add_mutually_exclusive_group()
+    v1_source.add_argument("--host-config", help="Host bridge capability JSON")
+    v1_source.add_argument(
+        "--llama-cpp-config",
+        help="Local llama.cpp Qwen3-VL adapter JSON",
+    )
     args = parser.parse_args(argv)
 
     case_file = Path(args.case)
@@ -492,13 +526,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: Case file not found: {case_file}", file=sys.stderr)
         return 1
 
-    adapters = None
-    if args.host_config:
-        adapters = [
-            HostBridgeAdapter(Path(args.host_config)),
-            DeterministicEditorAdapter(),
-            LocalCompareAdapter(),
-        ]
+    external_adapters: list[CapabilityAdapter] = []
+    try:
+        if args.host_config:
+            external_adapters.append(HostBridgeAdapter(Path(args.host_config)))
+        if args.llama_cpp_config:
+            external_adapters.append(LlamaCppQwenAdapter.from_json(Path(args.llama_cpp_config)))
+    except (OSError, ValueError) as exc:
+        print(f"Error: Failed to load adapter config: {exc}", file=sys.stderr)
+        return 1
+    adapters = (
+        [*external_adapters, DeterministicEditorAdapter(), LocalCompareAdapter()]
+        if external_adapters
+        else None
+    )
     result = run_case(case_file, adapters=adapters)
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -513,7 +554,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {result.error}", file=sys.stderr)
     if result.status in (
         Status.COMPLETED,
-        Status.COMPLETED_WITH_USER_CONFIRMATION_PENDING,
+        Status.COMPLETED_PHASE,
+        Status.COMPLETED_WITH_USER_FEEDBACK_PENDING,
+        Status.REJECTED,
+        Status.CHANGES_REQUESTED,
     ):
         return 0
     if result.status.value.startswith("blocked_"):

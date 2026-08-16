@@ -588,6 +588,17 @@ description: 见相：对照片、插图、截图、视频画面或其他视觉�
 返回 `failed_invalid_contract`。旧 L1/L2 case 仍可执行，但证据中标记为 `legacy-unplanned`；
 L3 不允许绕过 Plan。
 
+正式 Plan 还必须通过 `decision_source`、结构化 `basis` 和 `observation_sha256` 绑定完整
+ObservationResult。edit/full 中带 Plan 时提交同一个 `source_observation`；运行时核对 canonical
+Observation hash 和输入图片 hash，不能重新生成另一份 Observation 冒充原决策来源。
+
+当用户要求继续调整时，下一版 Plan 使用 `decision_source=hybrid`，并绑定
+`parent_plan_id`、`parent_plan_sha256`、`trigger_feedback_id`、`trigger_feedback_sha256`、
+`parent_candidate_id` 和 `parent_candidate_sha256`。新执行 case 通过 `parent_plan` 携带父
+Plan 原件，通过 `trigger_feedback` 携带上一轮反馈原件；运行时同时验证父 Plan canonical
+hash、反馈 hash、反馈候选 hash 与首个操作的父候选输入。缺少父 Plan artifact 或任一 hash
+不匹配时，必须返回 `failed_invalid_contract`。
+
 ### 运行时入口
 
 ```powershell
@@ -608,8 +619,11 @@ python -m scripts --case .\case.json --output .\output
 - `blocked_no_edit_capability`: 无 V2 能力
 - `blocked_no_comparison_capability`: 无 V3 能力
 - `blocked_no_candidate`: 无候选图
-- `completed_with_user_confirmation_pending`: 执行完成，等待用户确认
-- `completed`: 执行完成，用户已确认
+- `completed_phase`: diagnosis 或 edit 阶段完成，不表示 V3 或用户通过
+- `completed_with_user_feedback_pending`: compare/full 完成，等待真实用户反馈
+- `completed`: 收到绑定最终候选 hash 的 `accepted` UserFeedback
+- `rejected`: 用户拒绝当前候选
+- `changes_requested`: 用户要求继续调整
 - `failed_invalid_contract`: 契约校验失败
 - `failed_execution`: 执行过程失败
 
@@ -619,12 +633,15 @@ python -m scripts --case .\case.json --output .\output
 - V1: adapter 必须有真实 `observe(image, prompt)` 执行路径，并返回 schema-valid 观察结果
 - V1: 观察结果必须绑定输入图片 SHA-256 和本次 prompt SHA-256
 - V1: malformed、adapter exception 或 hash mismatch 必须 fail-closed
+- V1: 本地 Qwen3-VL 使用 llama.cpp 时读取 `references/llama-cpp-local-observation.md`；只允许 loopback，模型 ID 和 image modality 必须通过 healthcheck
 - V2: 内置 deterministic-pillow 证明 L1/L2 和 Plan 约束的矩形局部 L3；外部 adapter 必须同时具备健康证据和实际执行路径
 - V3: 内置 local-compare 记录父候选、候选、hash、尺寸和结构化像素指标；不能把它写成审美质量通过
+- V3: compare-only 候选必须声明 operation/parameters；裁切记录 crop box、源面积、保留/移除面积及比例
 - 每个候选必须记录 `candidate_id`、`parent_candidate_id`、`plan_id`、输入/输出路径和 SHA-256
 - 候选输出路径必须唯一，禁止覆盖或通过硬链接别名指向原图/兄弟候选，写入后必须复核 hash
 - V2/V3 必须调用能力报告中记录的 provider；缺少执行方法或证据不一致时 fail-closed
 - 编辑参数按操作 schema 校验；非法类型、范围或多余字段返回 `failed_invalid_contract`
 - adapter 名称本身不能让能力变成 true
+- 旧 `user_confirmation_status` 不能作为用户通过证据；UserFeedback 只能在 compare 中绑定叶子候选 ID/hash
 
 详细运行时契约，请读取 `references/runtime-contract.md`。

@@ -11,6 +11,8 @@
 - Routed V2/V3 execution through the provider recorded by capability probing.
 - Rejected hardlink aliases, duplicate candidate outputs, ambiguous candidate sources, and malformed operation parameters.
 - Escaped lineage metadata in HTML comparison reports and verified hashes after edits.
+- Added a loopback-only llama.cpp adapter for schema-constrained Qwen3-VL GGUF observation.
+- Added `--llama-cpp-config` so local V1 observation can participate in the existing full runtime.
 
 ## v0.1.0 - 2026-08-15
 
